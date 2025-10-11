@@ -24,20 +24,22 @@ def run_p_controller_sim():
     p_controller = PController(kp=0.8) # You can tune this Kp value
 
     running = True
+    time_elapsed = 0.0
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
-        force = p_controller.get_action(ball.y, config.TARGET_HEIGHT, ball.velocity)
+        current_target = config.target_height(time_elapsed)
+        force = p_controller.get_action(ball.y, current_target, ball.velocity)
         ball.apply_force(force)
 
         # --- Drawing ---
         screen.fill(config.WHITE)
         pygame.draw.line(screen, config.BLACK, (0, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), 2)
-        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), 2)
+        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - current_target), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - current_target), 2)
         target_text = font.render('Target Height', True, config.GREEN)
-        screen.blit(target_text, (5, config.SCREEN_HEIGHT - config.TARGET_HEIGHT - 25))
+        screen.blit(target_text, (5, config.SCREEN_HEIGHT - current_target - 25))
         ball.draw(screen)
 
         # --- Info Text ---
@@ -50,6 +52,7 @@ def run_p_controller_sim():
 
         pygame.display.flip()
         clock.tick(1 / config.TIME_STEP)
+        time_elapsed += config.TIME_STEP
 
     pygame.quit()
 
@@ -129,7 +132,7 @@ def run_mpc_controller_sim():
     clock = pygame.time.Clock()
     font = pygame.font.Font(None, 30)
     
-    N = 5
+    N = 25
 
     ball = Ball(config.SCREEN_WIDTH / 2, config.GROUND_HEIGHT + config.BALL_RADIUS)
     mpc_controller = MPCController(N, dt=config.TIME_STEP) # You can tune N and dt values
@@ -140,12 +143,14 @@ def run_mpc_controller_sim():
     predicted_controls = []
 
     running = True
+    time_elapsed = 0.0
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
         
-        force, pred_X, pred_U = mpc_controller.get_action(ball.y, ball.velocity)
+        current_target = config.target_height(time_elapsed)
+        force, pred_X, pred_U = mpc_controller.get_action(ball.y, ball.velocity, target_height=current_target)
         # apply first control
         ball.apply_force(force, disturbance=True)
 
@@ -167,9 +172,9 @@ def run_mpc_controller_sim():
         # --- Drawing ---
         screen.fill(config.WHITE)
         pygame.draw.line(screen, config.BLACK, (0, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), 2)
-        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), 2)
+        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - current_target), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - current_target), 2)
         target_text = font.render('Target Height', True, config.GREEN)
-        screen.blit(target_text, (5, config.SCREEN_HEIGHT - config.TARGET_HEIGHT - 25))
+        screen.blit(target_text, (5, config.SCREEN_HEIGHT - current_target - 25))
         ball.draw(screen)
 
         # --- Info Text ---
@@ -182,10 +187,11 @@ def run_mpc_controller_sim():
 
         pygame.display.flip()
         clock.tick(1 / config.TIME_STEP)
+        time_elapsed += config.TIME_STEP
 
     pygame.quit()
     qx, qu, lbu, ubu, r, delta_u_max = mpc_controller.sizes()
-    ref = config.TARGET_HEIGHT
+    ref = config.TARGET_MEAN
     np.savez("mpc_data.npz", positions=positions, forces=forces, trajectories=predicted_trajectories, controls=predicted_controls, N=N, qx=qx, qu=qu, lbu=lbu, ubu=ubu, r=r, ref=ref, delta_u_max=delta_u_max)
 
 

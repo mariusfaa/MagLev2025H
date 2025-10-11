@@ -37,12 +37,16 @@ class BallEnv(gym.Env):
 
     def _get_obs(self):
         """Returns the current observation."""
-        distance_to_target = config.TARGET_HEIGHT - self.ball.y
+        current_time = self.current_step * config.TIME_STEP
+        target = config.target_height(current_time)
+        distance_to_target = target - self.ball.y
         return np.array([self.ball.y, self.ball.velocity, distance_to_target], dtype=np.float32)
     
     def _get_info(self):
         """Returns auxiliary diagnostic information."""
-        return {"distance_to_target": np.abs(self.ball.y - config.TARGET_HEIGHT)}
+        current_time = self.current_step * config.TIME_STEP
+        target = config.target_height(current_time)
+        return {"distance_to_target": np.abs(self.ball.y - target)}
 
     def reset(self, seed=None, options=None):
         """Resets the environment to an initial state."""
@@ -110,9 +114,11 @@ class BallEnv(gym.Env):
         pygame.draw.line(self.screen, config.BLACK, (0, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), 2)
         
         # Draw target height line
-        pygame.draw.line(self.screen, config.GREEN, (0, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), 2)
+        current_time = self.current_step * config.TIME_STEP
+        target = config.target_height(current_time)
+        pygame.draw.line(self.screen, config.GREEN, (0, config.SCREEN_HEIGHT - target), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - target), 2)
         target_text = self.font.render("Target", True, config.GREEN)
-        self.screen.blit(target_text, (10, config.SCREEN_HEIGHT - config.TARGET_HEIGHT - 20))
+        self.screen.blit(target_text, (10, config.SCREEN_HEIGHT - target - 20))
 
         # Draw the ball
         self.ball.draw(self.screen)

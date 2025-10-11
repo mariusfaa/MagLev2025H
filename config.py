@@ -1,9 +1,20 @@
+import math
+
 # --- Simulation Parameters ---
 GRAVITY = 9.81
 BALL_MASS = 1.0
 TIME_STEP = 0.02  # 50 Hz simulation frequency
-FORCE_MAGNITUDE = 20.0  # Max force applied by controller
-TARGET_HEIGHT = 300.0
+FORCE_MAGNITUDE = 60.0  # Max force applied by controller
+# TARGET_HEIGHT = 300.0
+
+TARGET_MEAN = 300.0
+TARGET_HEIGHT = TARGET_MEAN
+TARGET_AMPLITUDE = 50.0
+TARGET_PERIOD = 5.0
+
+def target_height(t: float) -> float:
+    """Returns a time-varying target height based on a sine wave."""
+    return TARGET_MEAN + TARGET_AMPLITUDE * math.sin(2 * math.pi * t / TARGET_PERIOD)
 
 # --- Pygame Visualization Parameters ---
 SCREEN_WIDTH = 400
