@@ -131,23 +131,38 @@ def run_mpc_controller_sim():
     
     N = 5
 
-    ball = Ball(config.SCREEN_WIDTH / 2, config.GROUND_HEIGHT + config.BALL_RADIUS + 150)
+    ball = Ball(config.SCREEN_WIDTH / 2, config.GROUND_HEIGHT + config.BALL_RADIUS)
     mpc_controller = MPCController(N, dt=config.TIME_STEP) # You can tune N and dt values
     
     positions = []
     forces = []
+    predicted_trajectories = []
+    predicted_controls = []
 
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-
-        force = mpc_controller.get_action(ball.y, ball.velocity)
-        ball.apply_force(force, disturbance=False)
         
+        force, pred_X, pred_U = mpc_controller.get_action(ball.y, ball.velocity)
+        # apply first control
+        ball.apply_force(force, disturbance=True)
+
         positions.append(ball.y)
         forces.append(force)
+
+        # store predicted trajectory (convert to simple lists) if available
+        if pred_X is not None:
+            # pred_X shape (2, N+1) -> store heights and velocities separately or together
+            predicted_trajectories.append(pred_X.tolist())
+        else:
+            predicted_trajectories.append(None)
+
+        if pred_U is not None:
+            predicted_controls.append(pred_U.flatten().tolist())
+        else:
+            predicted_controls.append(None)
 
         # --- Drawing ---
         screen.fill(config.WHITE)
@@ -171,7 +186,7 @@ def run_mpc_controller_sim():
     pygame.quit()
     qx, qu, lbu, ubu, r, delta_u_max = mpc_controller.sizes()
     ref = config.TARGET_HEIGHT
-    np.savez("mpc_data.npz", positions=positions, forces=forces, N=N, qx=qx, qu=qu, lbu=lbu, ubu=ubu, r=r, ref=ref, delta_u_max=delta_u_max)
+    np.savez("mpc_data.npz", positions=positions, forces=forces, trajectories=predicted_trajectories, controls=predicted_controls, N=N, qx=qx, qu=qu, lbu=lbu, ubu=ubu, r=r, ref=ref, delta_u_max=delta_u_max)
 
 
 if __name__ == '__main__':

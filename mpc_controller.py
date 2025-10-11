@@ -47,7 +47,7 @@ class MPCController:
         self.qu = 10
         self.r = 1
         Q = np.diag([self.qx, self.qu])  # State cost weights
-        R = np.diag([self.r])      # Control cost weight
+        R = np.diag([self.r])            # Control cost weight
 
         cost = 0
         for k in range(N):
@@ -55,9 +55,9 @@ class MPCController:
             cost += mtimes([state_error.T, Q, state_error]) + mtimes([self.U[:, k].T, R, self.U[:, k]])
         
         # Terminal cost (higher weight for final state)
-        # terminal_error = self.X[:, N] - vertcat(self.target_height, 0)
-        # Q_terminal = 2 * Q  # Double the terminal cost
-        # cost += mtimes([terminal_error.T, Q_terminal, terminal_error])
+        terminal_error = self.X[:, N] - vertcat(self.target_height, 0)
+        Q_terminal = 2 * Q  # Double the terminal cost
+        cost += mtimes([terminal_error.T, Q_terminal, terminal_error])
 
         self.opti.minimize(cost)
 
@@ -78,7 +78,7 @@ class MPCController:
         # Store last solution for warm starting
         # self.last_solution = None
 
-    def get_action(self, current_height, current_velocity):
+    def get_action(self, current_height, current_velocity, current_timestep=np.pi/2):
         """Computes the optimal control action given the current state."""
         self.opti.set_value(self.X0, [current_height, current_velocity])
         self.opti.set_value(self.target_height, config.TARGET_HEIGHT)
@@ -86,19 +86,23 @@ class MPCController:
         try:
             sol = self.opti.solve()
             optimal_force = sol.value(self.U[0, 0])
-            
-            # Save solution for next iteration
-            # self.last_solution = {
-            #     'X': sol.value(self.X),
-            #     'U': sol.value(self.U)
-            # }
+            # Save solution for next iteration (warm start / diagnostics)
+            self.last_solution = {
+                'X': sol.value(self.X),
+                'U': sol.value(self.U)
+            }
+            predicted_X = sol.value(self.X)  # shape (2, N+1)
+            predicted_U = sol.value(self.U)  # shape (1, N)
             
         except RuntimeError as e:
             # If the solver fails, return gravity compensation
             print(f"MPC solver failed: {e}")
             optimal_force = config.GRAVITY  # Hover in place
+            # No predicted trajectory available on failure
+            self.last_solution = None
+            return optimal_force, None, None
 
-        return optimal_force
+        return optimal_force, predicted_X, predicted_U
     
     def sizes(self):
         """Returns the sizes of the state and action spaces."""
