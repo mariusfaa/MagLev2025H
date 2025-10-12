@@ -8,13 +8,7 @@ import config
 from ball_simulation import Ball
 from p_controller import PController
 from environment import BallEnv
-#from ppo_agent import create_ppo_agent, train_agent, load_agent
-def create_ppo_agent():
-    pass
-def load_agent():
-    pass
-def train_agent():
-    pass
+from ppo_agent import create_ppo_agent, train_agent, load_agent
 from mpc_controller import MPCController
 from filter import EKF, MHE, dynamic_model, sensor_model, gaussian
 
@@ -134,7 +128,7 @@ def run_mpc_controller_sim(estimator: int):
     clock = pygame.time.Clock()
     font = pygame.font.Font(None, 30)
     
-    N = 25
+    N = 5
 
     ball = Ball(config.SCREEN_WIDTH / 2, config.GROUND_HEIGHT + config.BALL_RADIUS)
     mpc_controller = MPCController(N, dt=config.TIME_STEP) # You can tune N and dt values
