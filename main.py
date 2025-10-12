@@ -257,7 +257,6 @@ if __name__ == '__main__':
         run_p_controller_sim()
     elif choice == '2':
         run_ppo_controller_sim()
-        pass
     elif choice == '3':
         print("Choose estimator type:")
         print("1: none (use ground truth)")
