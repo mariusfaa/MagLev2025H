@@ -8,8 +8,13 @@ import config
 from ball_simulation import Ball
 from p_controller import PController
 from environment import BallEnv
-from ppo_agent import create_ppo_agent, train_agent, load_agent
-
+#from ppo_agent import create_ppo_agent, train_agent, load_agent
+def create_ppo_agent():
+    pass
+def load_agent():
+    pass
+def train_agent():
+    pass
 from mpc_controller import MPCController
 from filter import EKF, MHE, dynamic_model, sensor_model, gaussian
 
@@ -138,7 +143,7 @@ def run_mpc_controller_sim(estimator: int):
     if estimator == 2:
         ekf = EKF(
             dynamic_model(var_pos=2, var_vel=2),
-            sensor_model(var_meas_pos=3**2, var_meas_vel=1.5**2))
+            sensor_model(var_meas_pos=(1*6)**2, var_meas_vel=(0.5*6)**2))
     if estimator == 3:
         mhe = MHE()
     
@@ -159,8 +164,8 @@ def run_mpc_controller_sim(estimator: int):
                 running = False
 
         # --- Adding noise to measurements ---
-        std_pos = 1*3
-        std_vel = 0.5*3
+        std_pos = 1*6
+        std_vel = 0.5*6
         if estimator in (2, 3):
             z_pos = ball.y + np.random.normal(0, std_pos)
             z_vel = ball.velocity + np.random.normal(0, std_vel)
@@ -183,18 +188,28 @@ def run_mpc_controller_sim(estimator: int):
                 x_est_pred, z_est_pred = ekf.predict(x_est, forces[-1] if len(forces) > 0 else 0)
                 x_est = ekf.update(x_est_pred, z_est_pred, z_meas)
             est_pos, est_vel = x_est.mean
+    
         
-
-        force = mpc_controller.get_action(est_pos, est_vel)
-        ball.apply_force(force, disturbance=False)
-        
-        force, pred_X, pred_U = mpc_controller.get_action(ball.y, ball.velocity)
+        force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel)
         # apply first control
         ball.apply_force(force, disturbance=True)
 
         positions.append(ball.y)
         velocities.append(ball.velocity)
         forces.append(force)
+
+        # store predicted trajectory (convert to simple lists) if available
+        if pred_X is not None:
+            # pred_X shape (2, N+1) -> store heights and velocities separately or together
+            predicted_trajectories.append(pred_X.tolist())
+        else:
+            predicted_trajectories.append(None)
+
+        if pred_U is not None:
+            predicted_controls.append(pred_U.flatten().tolist())
+        else:
+            predicted_controls.append(None)
+
 
         measurements = np.hstack([measurements, z_meas])
 

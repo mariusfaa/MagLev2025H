@@ -87,5 +87,4 @@ plt.xlabel('Timestep')
 plt.ylabel('NEES')
 plt.legend(loc='upper right')
 
-plt.tight_layout()
 plt.show()
