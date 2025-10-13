@@ -208,7 +208,7 @@ def run_mpc_controller_sim(estimator: int):
         measurements = np.hstack([measurements, z_meas])
 
         estimated_states.append(x_est)
-        estimated_measurements.append(z_est_pred)
+        estimated_measurements.append(z_est_pred if estimator == 2 else z_meas)
 
         # --- Drawing ---
         screen.fill(config.WHITE)
@@ -269,3 +269,4 @@ if __name__ == '__main__':
             print("Invalid estimator choice. Exiting")
     else:
         print("Invalid choice. Exiting.")
+
