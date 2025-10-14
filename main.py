@@ -160,12 +160,15 @@ def run_mpc_controller_sim(estimator: int):
         # --- Adding noise to measurements ---
         std_pos = 1*6
         std_vel = 0.5*6
-        if estimator in (2, 3):
+        if estimator != 1:
             z_pos = ball.y + np.random.normal(0, std_pos)
             z_vel = ball.velocity + np.random.normal(0, std_vel)
-        else:
-            z_pos, z_vel = ball.y, ball.velocity # no estimator, use ground truth
+            
+        else: # no estimator, use ground truth
             est_pos, est_vel = ball.y, ball.velocity
+            z_pos, z_vel = None, None
+            z_est_pred = None
+            x_est = None
         
         z_meas = np.vstack([z_pos, z_vel])
 
@@ -208,7 +211,7 @@ def run_mpc_controller_sim(estimator: int):
         measurements = np.hstack([measurements, z_meas])
 
         estimated_states.append(x_est)
-        estimated_measurements.append(z_est_pred if estimator == 2 else z_meas)
+        estimated_measurements.append(z_est_pred)
 
         # --- Drawing ---
         screen.fill(config.WHITE)
@@ -261,7 +264,7 @@ if __name__ == '__main__':
         print("Choose estimator type:")
         print("1: none (use ground truth)")
         print("2: Extended Kalman filter")
-        print("3: Moving horizon estimator")
+        print("3: Moving horizon estimator (not implemented)")
         estimator_choice = int(input("enter choice (1, 2 or 3): "))
         if estimator_choice in (1, 2, 3):
             run_mpc_controller_sim(estimator_choice)
