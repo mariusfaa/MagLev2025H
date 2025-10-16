@@ -2,6 +2,8 @@ import pygame
 import time
 import os
 from gymnasium.utils.env_checker import check_env
+import matplotlib.pyplot as plt
+
 
 import config
 from ball_simulation import Ball
@@ -70,11 +72,9 @@ def run_ppo_controller_sim():
     if should_train:
         # --- TRAINING PHASE (NO VISUALS) ---
         print("\n--- Setting up headless environment for training... ---")
-        # Create a non-rendering environment for fast training
-        train_env = BallEnv()
-        agent = create_ppo_agent(train_env)
+        # Create a vectorized environment for fast, parallel training
+        agent = create_ppo_agent(BallEnv)
         agent = train_agent(agent, timesteps=config.PPO_TIMESTEPS)
-        train_env.close()
         print("\n--- Training complete. Initializing visualization for evaluation... ---")
 
 
@@ -91,6 +91,10 @@ def run_ppo_controller_sim():
     running = True
     font = pygame.font.Font(None, 30)
 
+    positions = []
+    forces = []
+    references = []
+
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -103,6 +107,11 @@ def run_ppo_controller_sim():
         height = obs[0]
         velocity = obs[1]
         force = action[0]
+        current_ref = obs[2] # Target height is part of the observation
+
+        positions.append(height)
+        forces.append(force)
+        references.append(current_ref)
 
         height_text = font.render(f'Height: {height:.2f}', True, config.BLACK)
         velocity_text = font.render(f'Velocity: {velocity:.2f}', True, config.BLACK)
@@ -114,12 +123,17 @@ def run_ppo_controller_sim():
             eval_env.screen.blit(force_text, (10, 70))
             pygame.display.flip()
 
+         # Stop the simulation if the episode ends, but continue logging
         if terminated or truncated:
-            print("Episode finished. Resetting.")
-            obs, _ = eval_env.reset()
-            time.sleep(1)
+            running = False
+            print("Episode finished.")
 
     eval_env.close()
+    np.savez("ppo_data.npz", positions=positions, forces=forces, ref=references)
+    # Plotting the results automatically
+    print("Plotting PPO simulation data...")
+    plot_data("ppo_data.npz", "PPO Controller Performance")
+
 
 def run_mpc_controller_sim():
     """Runs the simulation with the MPC Controller."""
@@ -173,6 +187,37 @@ def run_mpc_controller_sim():
     ref = config.TARGET_HEIGHT
     np.savez("mpc_data.npz", positions=positions, forces=forces, N=N, qx=qx, qu=qu, lbu=lbu, ubu=ubu, r=r, ref=ref, delta_u_max=delta_u_max)
 
+
+def plot_data(file_path, title):
+    """Loads data from an .npz file and plots it."""
+    data = np.load(file_path)
+    positions = data["positions"]
+    forces = data["forces"]
+    
+    plt.figure(figsize=(12, 8))
+    plt.suptitle(title)
+    
+    plt.subplot(2, 1, 1)
+    plt.plot(positions, label='Ball Height')
+    # Handle both constant and varying reference signals
+    ref_data = data['ref']
+    if ref_data.ndim == 0: # It's a scalar
+        plt.plot([ref_data]*len(positions), 'r--', label='Target Height')
+    else: # It's an array
+        plt.plot(ref_data, 'r--', label='Target Height')
+    plt.ylabel('Height (pixels)')
+    plt.legend()
+    plt.grid(True)
+
+    plt.subplot(2, 1, 2)
+    plt.plot(forces, label='Control Input (Force)', color='orange')
+    plt.xlabel('Timestep')
+    plt.ylabel('Force')
+    plt.legend()
+    plt.grid(True)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
 
 if __name__ == '__main__':
     env = BallEnv()
