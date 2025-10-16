@@ -33,7 +33,7 @@ class MPCController:
         self.ubu = config.FORCE_MAGNITUDE
         self.opti.subject_to(self.opti.bounded(self.lbu, self.U, self.ubu))
         
-        self.delta_u_max = 5  # Set your desired max change
+        self.delta_u_max = 10  # Set your desired max change
 
         for k in range(1, N):
             delta_u = self.U[0, k] - self.U[0, k-1]
@@ -45,7 +45,7 @@ class MPCController:
         # Objective function: minimize the distance to the target height and control effort
         self.qx = 100
         self.qu = 10
-        self.r = 1
+        self.r = 3
         Q = np.diag([self.qx, self.qu])  # State cost weights
         R = np.diag([self.r])            # Control cost weight
 
@@ -56,7 +56,7 @@ class MPCController:
         
         # Terminal cost (higher weight for final state)
         terminal_error = self.X[:, N] - vertcat(self.target_height, 0)
-        Q_terminal = 2 * Q  # Double the terminal cost
+        Q_terminal = 30 * Q  # 20 times the terminal cost
         cost += mtimes([terminal_error.T, Q_terminal, terminal_error])
 
         self.opti.minimize(cost)
