@@ -8,7 +8,13 @@ import config
 from ball_simulation import Ball
 from p_controller import PController
 from environment import BallEnv
-from ppo_agent import create_ppo_agent, train_agent, load_agent
+#from ppo_agent import create_ppo_agent, train_agent, load_agent
+def create_ppo_agent():
+    pass
+def train_agent():
+    pass
+def load_agent():
+    pass
 from mpc_controller import MPCController
 from filter import EKF, MHE, dynamic_model, sensor_model, gaussian
 
@@ -139,7 +145,11 @@ def run_mpc_controller_sim(estimator: int):
             dynamic_model(var_pos=2, var_vel=2),
             sensor_model(var_meas_pos=(1*6)**2, var_meas_vel=(0.5*6)**2))
     if estimator == 3:
-        mhe = MHE()
+        mhe = MHE(
+            dynamic_model(var_pos=2, var_vel=2),
+            sensor_model(var_meas_pos=(1*6)**2, var_meas_vel=(0.5*6)**2),
+            M=5
+        )
     
     positions = []
     velocities = []
@@ -148,8 +158,6 @@ def run_mpc_controller_sim(estimator: int):
     predicted_controls = []
 
     measurements = np.empty((2,0))
-    estimated_states = []
-    estimated_measurements = []
 
     running = True
     while running:
@@ -163,30 +171,41 @@ def run_mpc_controller_sim(estimator: int):
         if estimator != 1:
             z_pos = ball.y + np.random.normal(0, std_pos)
             z_vel = ball.velocity + np.random.normal(0, std_vel)
+            z_meas = np.vstack([z_pos, z_vel])
+            measurements = np.append(measurements, z_meas, axis=1)
             
         else: # no estimator, use ground truth
             est_pos, est_vel = ball.y, ball.velocity
-            z_pos, z_vel = None, None
-            z_est_pred = None
-            x_est = None
-        
-        z_meas = np.vstack([z_pos, z_vel])
+
 
         # --- State estimation ---
         if estimator == 2: # EKF
             if len(positions) == 0:
-                # Initialize EKF with first noisy measurement
-                init_mean = z_meas
-                init_cov = np.diag([std_pos**2, std_vel**2]) # Initial covariance is perfect because why not
+                # Initialize EKF with perfect knowledge of first state
+                init_mean = np.vstack([ball.y, ball.velocity])
+                init_cov = np.diag([0.1, 0.1])
                 x_est = gaussian(init_mean, init_cov)
                 x_est_pred, z_est_pred = ekf.predict(x_est, forces[-1] if len(forces) > 0 else 0)
             else:
                 # EKF predict and update steps
-                x_est_pred, z_est_pred = ekf.predict(x_est, forces[-1] if len(forces) > 0 else 0)
+                x_est_pred, z_est_pred = ekf.predict(ekf.state_ests[-1], forces[-1])
                 x_est = ekf.update(x_est_pred, z_est_pred, z_meas)
             est_pos, est_vel = x_est.mean
-    
+
+            ekf.meas_ests.append(z_est_pred)
+            ekf.state_ests.append(x_est)
+
+        elif estimator == 3: # MHE
+            mhe.add_measurement(z_meas, forces[-1] if len(forces) > 0 else 0)
+            if len(positions) == 0:
+                # Initialize MHE with perfect knowledge of first state]
+                init_mean = np.vstack([ball.y, ball.velocity])
+                init_cov = np.diag([0.1, 0.1])
+                mhe.set_arrival_cost(init_mean, init_cov)
+            x_est = mhe.solve(0)
+            est_pos, est_vel = x_est
         
+
         force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel)
         # apply first control
         ball.apply_force(force, disturbance=True)
@@ -207,11 +226,6 @@ def run_mpc_controller_sim(estimator: int):
         else:
             predicted_controls.append(None)
 
-
-        measurements = np.hstack([measurements, z_meas])
-
-        estimated_states.append(x_est)
-        estimated_measurements.append(z_est_pred)
 
         # --- Drawing ---
         screen.fill(config.WHITE)
@@ -237,10 +251,16 @@ def run_mpc_controller_sim(estimator: int):
     ref = config.TARGET_HEIGHT
     np.savez("mpc_data.npz", positions=positions, forces=forces, trajectories=predicted_trajectories, controls=predicted_controls, N=N, qx=qx, qu=qu, lbu=lbu, ubu=ubu, r=r, ref=ref, delta_u_max=delta_u_max)
 
-    np.savez("ekf_data.npz", ground_truth=[positions, velocities],
-            measurements=measurements,
-            estimated_states=estimated_states,
-            estimated_measurements=estimated_measurements)
+    if estimator == 2:
+        np.savez("ekf_data.npz", ground_truth=[positions, velocities],
+                measurements=measurements,
+                estimated_states=ekf.state_ests,
+                estimated_measurements=ekf.meas_ests)
+    if estimator == 3:
+        np.savez("mhe_data.npz", ground_truth=[positions, velocities],
+                measurements=measurements,
+                estimated_states=mhe.x_ests)
+        
 
 
 if __name__ == '__main__':
@@ -264,7 +284,7 @@ if __name__ == '__main__':
         print("Choose estimator type:")
         print("1: none (use ground truth)")
         print("2: Extended Kalman filter")
-        print("3: Moving horizon estimator (not implemented)")
+        print("3: Moving horizon estimator")
         estimator_choice = int(input("enter choice (1, 2 or 3): "))
         if estimator_choice in (1, 2, 3):
             run_mpc_controller_sim(estimator_choice)

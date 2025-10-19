@@ -1,5 +1,6 @@
 mpc_data.npz
-filter_data.npz
+ekf_data.npz
+mhe_data.npz
 .vscode/*
 .venv/*
 __pycache__/*
