@@ -8,13 +8,7 @@ import config
 from ball_simulation import Ball
 from p_controller import PController
 from environment import BallEnv
-#from ppo_agent import create_ppo_agent, train_agent, load_agent
-def create_ppo_agent():
-    pass
-def train_agent():
-    pass
-def load_agent():
-    pass
+from ppo_agent import create_ppo_agent, train_agent, load_agent
 from mpc_controller import MPCController
 from filter import EKF, MHE, dynamic_model, sensor_model, gaussian
 
@@ -292,4 +286,5 @@ if __name__ == '__main__':
             print("Invalid estimator choice. Exiting")
     else:
         print("Invalid choice. Exiting.")
+
 
