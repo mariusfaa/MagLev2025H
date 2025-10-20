@@ -15,7 +15,7 @@ plt.plot([data['ref']]*len(positions), 'r--', label='Target Height')
 # Overlay predicted trajectories (height) at each timestep
 if trajectories is not None:
 	try:
-		K = 5  # plot only every Kth horizon
+		K = 10  # plot only every Kth horizon
 		for i, traj in enumerate(trajectories):
 			if i % K != 0 or traj is None:
 				continue
