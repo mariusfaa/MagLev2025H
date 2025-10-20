@@ -1,9 +1,3 @@
-import os
-# Workaround for OpenMP runtime conflicts (libomp.dll vs libiomp5md.dll)
-# See: https://openmp.llvm.org/ and the error message recommending KMP_DUPLICATE_LIB_OK
-# This must be set before importing libraries that may load OpenMP (numpy, sklearn, etc.).
-os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
-
 import numpy as np
 import pygame
 import time
@@ -407,4 +401,5 @@ if __name__ == '__main__':
             print("Invalid estimator choice. Exiting")
     else:
         print("Invalid choice. Exiting.")
+
 
