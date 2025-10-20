@@ -1,6 +1,7 @@
 import numpy as np
 import pygame
 import time
+import os
 from gymnasium.utils.env_checker import check_env
 
 import config
@@ -401,5 +402,6 @@ if __name__ == '__main__':
             print("Invalid estimator choice. Exiting")
     else:
         print("Invalid choice. Exiting.")
+
 
 
