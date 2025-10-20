@@ -133,11 +133,9 @@ def run_mpc_controller_sim(estimator: int):
     pygame.display.set_caption("Ball Simulator - MPC Controller")
     clock = pygame.time.Clock()
     font = pygame.font.Font(None, 30)
-    
-    N = 5
 
     ball = Ball(config.SCREEN_WIDTH / 2, config.GROUND_HEIGHT + config.BALL_RADIUS)
-    mpc_controller = MPCController(N, dt=config.TIME_STEP) # You can tune N and dt values
+    mpc_controller = MPCController(N=config.STD_MPC_HORIZON, dt=config.TIME_STEP)
 
     # --- Initialize chosen estimator ---
     if estimator == 2:
@@ -241,7 +239,7 @@ def run_mpc_controller_sim(estimator: int):
     pygame.quit()
     qx, qu, lbu, ubu, r, delta_u_max = mpc_controller.sizes()
     ref = config.TARGET_HEIGHT
-    np.savez("mpc_data.npz", positions=positions, forces=forces, trajectories=predicted_trajectories, controls=predicted_controls, N=N, qx=qx, qu=qu, lbu=lbu, ubu=ubu, r=r, ref=ref, delta_u_max=delta_u_max)
+    np.savez("mpc_data.npz", positions=positions, forces=forces, trajectories=predicted_trajectories, controls=predicted_controls, N=config.STD_MPC_HORIZON, qx=qx, qu=qu, lbu=lbu, ubu=ubu, r=r, ref=ref, delta_u_max=delta_u_max)
 
     np.savez("ekf_data.npz", ground_truth=[positions, velocities],
             measurements=measurements,
@@ -255,12 +253,9 @@ def run_mpc_controller_stochastic_sim(estimator: int):
     pygame.display.set_caption("Ball Simulator - stochastic MPC Controller")
     clock = pygame.time.Clock()
     font = pygame.font.Font(None, 30)
-    
-    N = 5
-    N_s = 15
 
     ball = Ball(config.SCREEN_WIDTH / 2, config.GROUND_HEIGHT + config.BALL_RADIUS)
-    mpc_controller_stoch = MPCControllerStochastic(N, dt=config.TIME_STEP, num_samples=N_s) # You can tune N, dt and num_samples values
+    mpc_controller_stoch = MPCControllerStochastic(N=config.STOCHASTIC_MPC_HORIZON, dt=config.TIME_STEP, num_samples=config.STOCHASTIC_MPC_SAMPLES) # You can tune N, dt and num_samples values
 
     # --- Initialize chosen estimator ---
     if estimator == 2:
@@ -364,7 +359,7 @@ def run_mpc_controller_stochastic_sim(estimator: int):
     pygame.quit()
     qx, qu, lbu, ubu, r, delta_u_max = mpc_controller_stoch.sizes()
     ref = config.TARGET_HEIGHT
-    np.savez("mpc_data.npz", positions=positions, forces=forces, trajectories=predicted_trajectories, controls=predicted_controls, N=N, qx=qx, qu=qu, lbu=lbu, ubu=ubu, r=r, ref=ref, delta_u_max=delta_u_max)
+    np.savez("mpc_data.npz", positions=positions, forces=forces, trajectories=predicted_trajectories, controls=predicted_controls, N=config.STOCHASTIC_MPC_HORIZON, qx=qx, qu=qu, lbu=lbu, ubu=ubu, r=r, ref=ref, delta_u_max=delta_u_max)
 
     np.savez("ekf_data.npz", ground_truth=[positions, velocities],
             measurements=measurements,

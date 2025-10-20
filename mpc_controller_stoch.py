@@ -31,7 +31,7 @@ class MPCControllerStochastic:
         self.ubu = config.FORCE_MAGNITUDE
         self.opti.subject_to(self.opti.bounded(self.lbu, self.U, self.ubu))
 
-        self.delta_u_max = 5  # Set your desired max change
+        self.delta_u_max = config.STOCHASTIC_MPC_DELTA_U_MAX  # Set your desired max change
         for k in range(1, N):
             delta_u = self.U[0, k] - self.U[0, k-1]
             self.opti.subject_to(self.opti.bounded(-self.delta_u_max, delta_u, self.delta_u_max))
@@ -41,9 +41,9 @@ class MPCControllerStochastic:
             self.opti.subject_to(self.X_samples[i][0, :] >= 0)  # Height must be non-negative
 
         # Objective function: expected cost over all samples
-        self.qx = 100
-        self.qu = 10
-        self.r = 1
+        self.qx = config.STOCHASTIC_MPC_QH
+        self.qu = config.STOCHASTIC_MPC_QV
+        self.r = config.STOCHASTIC_MPC_R
         Q = np.diag([self.qx, self.qu])  # State cost weights
         R = np.diag([self.r])            # Control cost weight
 
@@ -68,7 +68,7 @@ class MPCControllerStochastic:
                 cost += mtimes([state_error.T, Q, state_error]) + mtimes([self.U[:, k].T, R, self.U[:, k]])
             # Terminal cost
             terminal_error = X[:, N] - vertcat(self.target_height, 0)
-            Q_terminal = 5 * Q
+            Q_terminal = config.STOCHASTIC_MPC_TERMINAL * Q
             cost += mtimes([terminal_error.T, Q_terminal, terminal_error])
         # Average cost over all samples
         cost = cost / num_samples
