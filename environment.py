@@ -56,11 +56,12 @@ class BallEnv(gym.Env):
         
         # Set a random target height for this episode
         # The target is in the middle 75% of the playable area
-        min_playable_y = config.GROUND_HEIGHT + config.BALL_RADIUS + 100
-        max_playable_y = config.SCREEN_HEIGHT - config.BALL_RADIUS - 100
-        self.target_height = self.np_random.uniform(
-            min_playable_y, max_playable_y
-        )
+        if config.RANDOM_REFERENCE:
+            min_playable_y = config.GROUND_HEIGHT + config.BALL_RADIUS + 100
+            max_playable_y = config.SCREEN_HEIGHT - config.BALL_RADIUS - 100
+            self.target_height = self.np_random.uniform(
+                min_playable_y, max_playable_y
+            )
 
         self.ball = Ball(config.SCREEN_WIDTH / 2, initial_y)
         self.current_step = 0 # Reset the step counter
@@ -86,27 +87,17 @@ class BallEnv(gym.Env):
         else:
             # --- Reward Shaping ---
             distance_from_target = abs(self.ball.y - self.target_height)
-            
-            # 1. Main reward for being close to the target.
             reward = 1.5*np.exp(-0.05 * distance_from_target)
             
-            # 2. Penalty for control effort (to minimize force)
-            #force_penalty = 0.0001 * (action[0]**2)
-            #reward -= force_penalty
-            
-            # 3. Penalty for high velocity (to prevent overshoot)
-            # This encourages the agent to be stable, not just at the right height.
-            #velocity_penalty = 0.001 * (self.ball.velocity**2)
-            #reward -= velocity_penalty
-
             terminated = False
 
         if self.render_mode == "human":
             self._render_frame()
 
         truncated = self.current_step >= config.MAX_EPISODE_STEPS
-
-        self.target_height += np.sin(self.current_step * 0.02) * 0.5
+        
+        if config.MOVING_REFERENCE:
+            self.target_height += np.sin(self.current_step * 0.02) * 0.5
         
         return self._get_obs(), reward, terminated, truncated, self._get_info()
 
