@@ -258,3 +258,51 @@ class MHE:
         self.x_ests = np.append(self.x_ests, self.x_prior, axis=1)
 
         return self.x_prior
+    
+
+
+# -------------------------
+# --- Utility functions ---
+#--------------------------
+
+# --- Adding noise to measurements ---
+def add_noise(pos, vel):
+    std_pos = 1*6
+    std_vel = 0.5*6
+    z_pos = pos + np.random.normal(0, std_pos)
+    z_vel = vel + np.random.normal(0, std_vel)
+    z_meas = np.vstack([z_pos, z_vel])
+
+    return z_meas
+
+
+def run_ekf(ekf: EKF, z: np.ndarray, odometry: list):
+    u = odometry[-1] if len(odometry) > 0 else 0
+    if len(odometry) == 0:
+        # Initialize EKF with first measurement
+        init_mean = np.vstack([z[0], z[1]])
+        init_cov = np.diag([1*6, 0.5*6])
+        x_est = gaussian(init_mean, init_cov)
+        x_est_pred, z_est_pred = ekf.predict(x_est, u)
+    else:
+        # EKF predict and update steps
+        x_est_pred, z_est_pred = ekf.predict(ekf.state_ests[-1], u)
+        x_est = ekf.update(x_est_pred, z_est_pred, z)
+    est_pos, est_vel = x_est.mean
+    ekf.meas_ests.append(z_est_pred)
+    ekf.state_ests.append(x_est)
+
+    return est_pos, est_vel
+
+
+def run_mhe(mhe: MHE, z:np.ndarray, odometry: list):
+    u = odometry[-1] if len(odometry) > 0 else 0
+    mhe.add_measurement(z, u)
+    if len(odometry) == 0:
+        # Initialize MHE with first measurement
+        init_mean = np.vstack([z[0], z[1]])
+        init_cov = np.diag([1*6, 0.5*6])
+        mhe.set_arrival_cost(init_mean, init_cov)
+    x_est = mhe.solve(0)
+
+    return x_est

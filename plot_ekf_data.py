@@ -1,5 +1,7 @@
 import numpy as np
 from filter import gaussian
+import matplotlib
+matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 import scipy
 
@@ -21,7 +23,6 @@ pos_est = state_means[0]
 vel_est = state_means[1]
 pos_meas_est = meas_means[0]
 vel_meas_est = meas_means[1]
-
 
 plt.figure(figsize=(10, 5))
 plt.subplot(2, 1, 1)
