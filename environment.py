@@ -23,9 +23,9 @@ class BallEnv(gym.Env):
 
         # Observation: The ball's current height and vertical velocity.
         self.observation_space = spaces.Box(
-            low=np.array([-np.inf, -np.inf, -np.inf]),
-            high=np.array([np.inf, np.inf, np.inf]),
-            shape=(3,),
+            low=np.array([-np.inf, -np.inf, -np.inf, -np.inf]),
+            high=np.array([np.inf, np.inf, np.inf, np.inf]),
+            shape=(4,),
             dtype=np.float32
         )
 
@@ -33,16 +33,17 @@ class BallEnv(gym.Env):
         self.screen = None
         self.clock = None
         self.font = None
+        self.target_height = config.TARGET_HEIGHT # Default target
         self.current_step = 0
 
     def _get_obs(self):
         """Returns the current observation."""
-        distance_to_target = config.TARGET_HEIGHT - self.ball.y
-        return np.array([self.ball.y, self.ball.velocity, distance_to_target], dtype=np.float32)
+        distance_to_target = self.target_height - self.ball.y
+        return np.array([self.ball.y, self.ball.velocity, self.target_height, distance_to_target], dtype=np.float32)
     
     def _get_info(self):
         """Returns auxiliary diagnostic information."""
-        return {"distance_to_target": np.abs(self.ball.y - config.TARGET_HEIGHT)}
+        return {"distance_to_target": np.abs(self.ball.y - self.target_height)}
 
     def reset(self, seed=None, options=None):
         """Resets the environment to an initial state."""
@@ -52,6 +53,16 @@ class BallEnv(gym.Env):
             config.GROUND_HEIGHT + config.BALL_RADIUS,
             config.SCREEN_HEIGHT - 100
         )
+        
+        # Set a random target height for this episode
+        # The target is in the middle 75% of the playable area
+        if config.RANDOM_REFERENCE:
+            min_playable_y = config.GROUND_HEIGHT + config.BALL_RADIUS + 100
+            max_playable_y = config.SCREEN_HEIGHT - config.BALL_RADIUS - 100
+            self.target_height = self.np_random.uniform(
+                min_playable_y, max_playable_y
+            )
+
         self.ball = Ball(config.SCREEN_WIDTH / 2, initial_y)
         self.current_step = 0 # Reset the step counter
 
@@ -63,31 +74,31 @@ class BallEnv(gym.Env):
     def step(self, action):
         """Executes one time step within the environment."""
         self.current_step += 1 # Increment step counter
-        force = action[0] #+ 4.81
+        force = action[0] 
         self.ball.apply_force(force)
 
-        is_out_of_bounds = (self.ball.y < config.GROUND_HEIGHT + config.BALL_RADIUS or
-                        self.ball.y > config.SCREEN_HEIGHT - config.BALL_RADIUS)
+        is_out_of_bounds = (self.ball.y <= config.GROUND_HEIGHT + config.BALL_RADIUS or
+                            self.ball.y > config.SCREEN_HEIGHT - config.BALL_RADIUS)
 
         if is_out_of_bounds:
             # End the episode and give a large penalty if out of bounds
-            reward = -100.0
+            reward = -200.0
             terminated = True
         else:
-            distance = np.linalg.norm(self.ball.y - config.TARGET_HEIGHT)
-            reward = 4-distance*0.01
-
-            error = config.TARGET_HEIGHT - self.ball.y
-            is_moving_away = np.sign(error) * np.sign(self.ball.velocity) < 0
-            if is_moving_away:
-                reward -= 1
-
+            # --- Reward Shaping ---
+            distance_from_target = abs(self.ball.y - self.target_height)
+            reward = 1.5*np.exp(-0.05 * distance_from_target)
+            
             terminated = False
 
         if self.render_mode == "human":
             self._render_frame()
 
         truncated = self.current_step >= config.MAX_EPISODE_STEPS
+        
+        if config.MOVING_REFERENCE:
+            self.target_height += np.sin(self.current_step * 0.02) * 0.5
+        
         return self._get_obs(), reward, terminated, truncated, self._get_info()
 
     def render(self):
@@ -110,9 +121,9 @@ class BallEnv(gym.Env):
         pygame.draw.line(self.screen, config.BLACK, (0, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), 2)
         
         # Draw target height line
-        pygame.draw.line(self.screen, config.GREEN, (0, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), 2)
-        target_text = self.font.render("Target", True, config.GREEN)
-        self.screen.blit(target_text, (10, config.SCREEN_HEIGHT - config.TARGET_HEIGHT - 20))
+        pygame.draw.line(self.screen, config.GREEN, (0, config.SCREEN_HEIGHT - self.target_height), (self.screen.get_width(), config.SCREEN_HEIGHT - self.target_height), 2)
+        target_text = self.font.render(f"Target: {self.target_height:.0f}", True, config.GREEN)
+        self.screen.blit(target_text, (10, config.SCREEN_HEIGHT - self.target_height - 20))
 
         # Draw the ball
         self.ball.draw(self.screen)

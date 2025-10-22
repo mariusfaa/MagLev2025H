@@ -33,7 +33,7 @@ class MPCController:
         self.ubu = config.FORCE_MAGNITUDE
         self.opti.subject_to(self.opti.bounded(self.lbu, self.U, self.ubu))
         
-        self.delta_u_max = 5  # Set your desired max change
+        self.delta_u_max = config.STD_MPC_DELTA_U_MAX  # Set your desired max change
 
         for k in range(1, N):
             delta_u = self.U[0, k] - self.U[0, k-1]
@@ -43,10 +43,10 @@ class MPCController:
         self.opti.subject_to(self.X[0, :] >= 0)  # Height must be non-negative
 
         # Objective function: minimize the distance to the target height and control effort
-        self.qx = 100
-        self.qu = 10
-        self.r = 1
-        Q = np.diag([self.qx, self.qu])  # State cost weights
+        self.qh = config.STD_MPC_QH
+        self.qv = config.STD_MPC_QV
+        self.r = config.STD_MPC_R
+        Q = np.diag([self.qh, self.qv])  # State cost weights
         R = np.diag([self.r])            # Control cost weight
 
         cost = 0
@@ -56,7 +56,7 @@ class MPCController:
         
         # Terminal cost (higher weight for final state)
         terminal_error = self.X[:, N] - vertcat(self.target_height, 0)
-        Q_terminal = 2 * Q  # Double the terminal cost
+        Q_terminal = config.STD_MPC_TERMINAL * Q
         cost += mtimes([terminal_error.T, Q_terminal, terminal_error])
 
         self.opti.minimize(cost)
@@ -106,4 +106,4 @@ class MPCController:
     
     def sizes(self):
         """Returns the sizes of the state and action spaces."""
-        return self.qx, self.qu, self.lbu, self.ubu, self.r, self.delta_u_max
+        return self.qh, self.qv, self.lbu, self.ubu, self.r, self.delta_u_max
