@@ -109,9 +109,9 @@ class MPCControllerTube:
 
         try:
             sol = self.opti.solve()
-            Un_opt = sol.value(self.Un)  # (1, N)
+            Un_opt = sol.value(self.Un)  # (1, N) but may be flattened to (N,)
             Xn_opt = sol.value(self.Xn)  # (2, N+1)
-            u_nom0 = float(Un_opt[0, 0])
+            u_nom0 = float(Un_opt.flat[0]) 
             x_nom0 = Xn_opt[:, 0].reshape(-1)
             # compute feedback correction
             x_curr = np.array([current_height, current_velocity]).reshape(-1)
