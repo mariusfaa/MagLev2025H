@@ -3,7 +3,6 @@ GRAVITY = 9.81
 BALL_MASS = 1.0
 TIME_STEP = 0.02  # 50 Hz simulation frequency
 FORCE_MAGNITUDE = 20.0  # Max force applied by controller
-TARGET_HEIGHT = 300.0
 
 # --- Pygame Visualization Parameters ---
 SCREEN_WIDTH = 400
@@ -18,8 +17,28 @@ GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 
 # --- RL Training Parameters ---
-PPO_TIMESTEPS = 2000000
-MAX_EPISODE_STEPS = 1500
+PPO_TIMESTEPS = 20000000
+MAX_EPISODE_STEPS = 2000
+
+# --- Environment Settings ---
+TARGET_HEIGHT = 300.0
+RANDOM_REFERENCE = True #True/False
+MOVING_REFERENCE = True #True/False
+MOVING_REFERENCE_PERIODE = 0.05
+MOVING_REFERENCE_AMPLITUDE = 0.2
+
+# --- EKF Parameters ---
+EKF_VAR_PROC_POS = 2
+EKF_VAR_PROC_VEL = 2
+EKF_VAR_MEAS_POS = 36
+EKF_VAR_MEAS_VEL = 9
+
+# --- MHE Parameters ---
+MHE_HORIZON = 5
+MHE_VAR_PROC_POS = 2
+MHE_VAR_PROC_VEL = 2
+MHE_VAR_MEAS_POS = 36
+MHE_VAR_MEAS_VEL = 9
 
 # --- Standard MPC Parameters ---
 STD_MPC_HORIZON = 5
