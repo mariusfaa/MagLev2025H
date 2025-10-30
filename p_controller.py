@@ -14,5 +14,5 @@ class PController:
         """
         error = target_height - current_height
         force = self.kp * error - velocity*0.001
-        
-        return np.clip(force, -20, 20)
+
+        return np.clip(force, -config.FORCE_MAGNITUDE, config.FORCE_MAGNITUDE)
