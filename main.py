@@ -188,7 +188,14 @@ def run_mpc_controller_sim(estimator: int):
             est_pos, est_vel = ball.y, ball.velocity
         
         if config.MOVING_REFERENCE:
-            current_target_height = np.sin(current_step * config.MOVING_REFERENCE_PERIODE) * config.MOVING_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+            if config.MOVING_REFERENCE_TYPE == 'sine':
+                current_target_height = np.sin(current_step * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+            elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
+                L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
+                L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
+                current_target_height = L1 / (1 + np.exp(np.sin(config.SIGMOID_REFERENCE_PERIOD*(current_step*config.TIME_STEP - config.SIGMOID_REFERENCE_SHIFT))*(-config.SIGMOID_REFERENCE_SLOPE))) + L2
+        else:
+            current_target_height = config.TARGET_HEIGHT
         force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel, current_target_height)
         # apply first control
         ball.apply_force(force, disturbance=False)
@@ -296,7 +303,14 @@ def run_mpc_controller_stochastic_sim(estimator: int):
             est_pos, est_vel = ball.y, ball.velocity
 
         if config.MOVING_REFERENCE:
-            current_target_height = np.sin(current_step * config.MOVING_REFERENCE_PERIODE) * config.MOVING_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+            if config.MOVING_REFERENCE_TYPE == 'sine':
+                current_target_height = np.sin(current_step * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+            elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
+                L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
+                L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
+                current_target_height = L1 / (1 + np.exp(np.sin(config.SIGMOID_REFERENCE_PERIOD*(current_step*config.TIME_STEP - config.SIGMOID_REFERENCE_SHIFT))*(-config.SIGMOID_REFERENCE_SLOPE))) + L2
+        else:
+            current_target_height = config.TARGET_HEIGHT
         force, pred_X, pred_U = mpc_controller_stoch.get_action(est_pos, est_vel, current_target_height)
         # apply first control
         ball.apply_force(force, disturbance=False)
@@ -446,7 +460,14 @@ def run_mpc_controller_tube_sim(estimator: int):
             est_pos, est_vel = x_est.mean
 
         if config.MOVING_REFERENCE:
-            current_target_height = np.sin(current_step * config.MOVING_REFERENCE_PERIODE) * config.MOVING_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+            if config.MOVING_REFERENCE_TYPE == 'sine':
+                current_target_height = np.sin(current_step * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+            elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
+                L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
+                L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
+                current_target_height = L1 / (1 + np.exp(np.sin(config.SIGMOID_REFERENCE_PERIOD*(current_step*config.TIME_STEP - config.SIGMOID_REFERENCE_SHIFT))*(-config.SIGMOID_REFERENCE_SLOPE))) + L2
+        else:
+            current_target_height = config.TARGET_HEIGHT
         force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel, current_target_height)
         ball.apply_force(force, disturbance=False)
 
