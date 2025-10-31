@@ -90,10 +90,10 @@ class MPCControllerStochastic:
         self.opti.set_initial(self.U, np.full((1, N), config.GRAVITY))  # Start with gravity compensation
         # Store last solution for warm starting
 
-    def get_action(self, current_height, current_velocity):
+    def get_action(self, current_height, current_velocity, target_height):
         """Computes the optimal control action given the current state, using stochastic MPC."""
         self.opti.set_value(self.X0, [current_height, current_velocity])
-        self.opti.set_value(self.target_height, config.TARGET_HEIGHT)
+        self.opti.set_value(self.target_height, target_height)
 
         try:
             sol = self.opti.solve()

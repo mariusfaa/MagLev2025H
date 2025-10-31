@@ -78,10 +78,10 @@ class MPCController:
         # Store last solution for warm starting
         # self.last_solution = None
 
-    def get_action(self, current_height, current_velocity, current_timestep=np.pi/2):
+    def get_action(self, current_height, current_velocity, target_height):
         """Computes the optimal control action given the current state."""
         self.opti.set_value(self.X0, [current_height, current_velocity])
-        self.opti.set_value(self.target_height, config.TARGET_HEIGHT)
+        self.opti.set_value(self.target_height, target_height)
 
         try:
             sol = self.opti.solve()
