@@ -41,7 +41,7 @@ class MPCControllerTube:
         self.lbu = -config.FORCE_MAGNITUDE
         self.ubu = config.FORCE_MAGNITUDE
         # tighten nominal bounds slightly for robustness margin (tube)
-        self.u_tightening = 0.5  # tuning parameter: tighten control by this much
+        self.u_tightening = config.TUBE_MPC_TIGHTING_U  # tuning parameter: tighten control by this much
         self.opti.subject_to(self.opti.bounded(self.lbu + self.u_tightening, self.Un, self.ubu - self.u_tightening))
 
         # Optional delta-u constraint on nominal
@@ -51,7 +51,7 @@ class MPCControllerTube:
             self.opti.subject_to(self.opti.bounded(-self.delta_u_max, delta_u, self.delta_u_max))
 
         # State constraints (tighten by margin)
-        x_tightening = 1.0  # height tightening
+        x_tightening = config.TUBE_MPC_TIGHTING_X  # height tightening
         self.opti.subject_to(self.Xn[0, :] >= 0 + x_tightening)
 
         # Cost (nominal)
@@ -101,11 +101,11 @@ class MPCControllerTube:
         # return shape (1,2)
         return K
 
-    def get_action(self, current_height, current_velocity):
+    def get_action(self, current_height, current_velocity, target_height):
         """Solve nominal MPC and apply tube control u = u_nom + K (x - x_nom)."""
         # set parameters
         self.opti.set_value(self.X0, [current_height, current_velocity])
-        self.opti.set_value(self.target_height, config.TARGET_HEIGHT)
+        self.opti.set_value(self.target_height, target_height)
 
         try:
             sol = self.opti.solve()

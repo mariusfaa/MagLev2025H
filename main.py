@@ -1,13 +1,7 @@
-import os
-# Workaround for OpenMP runtime conflicts (libomp.dll vs libiomp5md.dll)
-# See: https://openmp.llvm.org/ and the error message recommending KMP_DUPLICATE_LIB_OK
-# This must be set before importing libraries that may load OpenMP (numpy, sklearn, etc.).
-os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
-
 import numpy as np
 import pygame
 import time
-# import os
+import os
 from gymnasium.utils.env_checker import check_env
 import matplotlib.pyplot as plt
 
@@ -418,13 +412,13 @@ def run_mpc_controller_tube_sim(estimator: int):
     measurements = np.empty((2,0))
     estimated_states = []
     estimated_measurements = []
-
+    current_step = 0
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-
+        current_step += 1
         # --- Adding noise to measurements ---
         std_pos = 1*6
         std_vel = 0.5*6
@@ -451,8 +445,10 @@ def run_mpc_controller_tube_sim(estimator: int):
                 x_est = ekf.update(x_est_pred, z_est_pred, z_meas)
             est_pos, est_vel = x_est.mean
 
-        force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel)
-        ball.apply_force(force, disturbance=True)
+        if config.MOVING_REFERENCE:
+            current_target_height = np.sin(current_step * config.MOVING_REFERENCE_PERIODE) * config.MOVING_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+        force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel, current_target_height)
+        ball.apply_force(force, disturbance=False)
 
         positions.append(ball.y)
         velocities.append(ball.velocity)
@@ -475,9 +471,9 @@ def run_mpc_controller_tube_sim(estimator: int):
         # --- Drawing ---
         screen.fill(config.WHITE)
         pygame.draw.line(screen, config.BLACK, (0, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), 2)
-        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), 2)
+        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - current_target_height), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - current_target_height), 2)
         target_text = font.render('Target Height', True, config.GREEN)
-        screen.blit(target_text, (5, config.SCREEN_HEIGHT - config.TARGET_HEIGHT - 25))
+        screen.blit(target_text, (5, config.SCREEN_HEIGHT - current_target_height - 25))
         ball.draw(screen)
 
         height_text = font.render(f'Height: {ball.y:.2f}', True, config.BLACK)
