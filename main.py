@@ -168,14 +168,14 @@ def run_mpc_controller_sim(estimator: int):
     predicted_controls = []
 
     measurements = np.empty((2,0))
-
+    current_step = 0
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
-
+        current_step += 1
         # --- State estimation ---
         z_meas = add_noise(ball.y, ball.velocity)
         measurements = np.append(measurements, z_meas, axis=1)
@@ -187,10 +187,11 @@ def run_mpc_controller_sim(estimator: int):
         else: # no estimator, use ground truth
             est_pos, est_vel = ball.y, ball.velocity
         
-
-        force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel)
+        if config.MOVING_REFERENCE:
+            current_target_height = np.sin(current_step * config.MOVING_REFERENCE_PERIODE) * config.MOVING_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+        force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel, current_target_height)
         # apply first control
-        ball.apply_force(force, disturbance=True)
+        ball.apply_force(force, disturbance=False)
 
         positions.append(ball.y)
         velocities.append(ball.velocity)
@@ -212,9 +213,9 @@ def run_mpc_controller_sim(estimator: int):
         # --- Drawing ---
         screen.fill(config.WHITE)
         pygame.draw.line(screen, config.BLACK, (0, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), 2)
-        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), 2)
+        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - current_target_height), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - current_target_height), 2)
         target_text = font.render('Target Height', True, config.GREEN)
-        screen.blit(target_text, (5, config.SCREEN_HEIGHT - config.TARGET_HEIGHT - 25))
+        screen.blit(target_text, (5, config.SCREEN_HEIGHT - current_target_height - 25))
         ball.draw(screen)
 
         # --- Info Text ---
