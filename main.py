@@ -149,16 +149,9 @@ def run_mpc_controller_sim(estimator: int):
 
     # --- Initialize chosen estimator ---
     if estimator == 2:
-        ekf = EKF(
-            dynamic_model(config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL),
-            sensor_model(config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL)
-        )
+        ekf = init_estimator(estimator)
     if estimator == 3:
-        mhe = MHE(
-            dynamic_model(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL),
-            sensor_model(config.MHE_VAR_MEAS_POS, config.MHE_VAR_MEAS_VEL),
-            config.MHE_HORIZON
-        )
+        mhe = init_estimator(estimator)
     
     positions = []
     velocities = []
@@ -256,16 +249,9 @@ def run_mpc_controller_stochastic_sim(estimator: int):
 
     # --- Initialize chosen estimator ---
     if estimator == 2:
-        ekf = EKF(
-            dynamic_model(config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL),
-            sensor_model(config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL)
-        )
+        ekf = init_estimator(estimator)
     if estimator == 3:
-        mhe = MHE(
-            dynamic_model(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL),
-            sensor_model(config.MHE_VAR_MEAS_POS, config.MHE_VAR_MEAS_VEL),
-            config.MHE_HORIZON
-        )
+        mhe = init_estimator(estimator)
     
     positions = []
     velocities = []

@@ -27,6 +27,10 @@ MOVING_REFERENCE = True #True/False
 MOVING_REFERENCE_PERIODE = 0.05
 MOVING_REFERENCE_AMPLITUDE = 0.2
 
+# --- Measurement Noise ---
+STD_POS = 6
+STD_VEL = 3
+
 # --- EKF Parameters ---
 EKF_VAR_PROC_POS = 2
 EKF_VAR_PROC_VEL = 2
