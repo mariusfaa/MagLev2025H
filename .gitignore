@@ -45,4 +45,4 @@ coverage.xml
 .DS_Store
 
 # Profiler
-.prof
+*.prof
