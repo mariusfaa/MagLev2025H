@@ -4,6 +4,8 @@ import time
 import os
 from gymnasium.utils.env_checker import check_env
 import matplotlib.pyplot as plt
+import cProfile
+import pstats
 
 
 import config
@@ -370,6 +372,8 @@ def plot_data(file_path, title):
 
 if __name__ == '__main__':
     env = BallEnv()
+    profiler = cProfile.Profile()
+    profiler.enable()
     try:
         check_env(env)
         print("Environment passes all checks!")
@@ -381,30 +385,34 @@ if __name__ == '__main__':
     print("3: Standard MPC controller")
     print("4: Stochastic MPC controller")
     choice = input("Enter choice (1, 2, 3 or 4): ")
-
-    if choice == '1':
-        run_p_controller_sim()
-    elif choice == '2':
-        run_ppo_controller_sim()
-    elif choice == '3':
-        print("Choose estimator type:")
-        print("1: none (use ground truth)")
-        print("2: Extended Kalman filter")
-        print("3: Moving horizon estimator")
-        estimator_choice = int(input("enter choice (1, 2 or 3): "))
-        if estimator_choice in (1, 2, 3):
-            run_mpc_controller_sim(estimator_choice)
+    try:
+        if choice == '1':
+            run_p_controller_sim()
+        elif choice == '2':
+            run_ppo_controller_sim()
+        elif choice == '3':
+            print("Choose estimator type:")
+            print("1: none (use ground truth)")
+            print("2: Extended Kalman filter")
+            print("3: Moving horizon estimator")
+            estimator_choice = int(input("enter choice (1, 2 or 3): "))
+            if estimator_choice in (1, 2, 3):
+                run_mpc_controller_sim(estimator_choice)
+            else:
+                print("Invalid estimator choice. Exiting")
+        elif choice == '4':
+            print("Choose estimator type:")
+            print("1: none (use ground truth)")
+            print("2: Extended Kalman filter")
+            print("3: Moving horizon estimator")
+            estimator_choice = int(input("enter choice (1, 2 or 3): "))
+            if estimator_choice in (1, 2, 3):
+                run_mpc_controller_stochastic_sim(estimator_choice)
+            else:
+                print("Invalid estimator choice. Exiting")
         else:
-            print("Invalid estimator choice. Exiting")
-    elif choice == '4':
-        print("Choose estimator type:")
-        print("1: none (use ground truth)")
-        print("2: Extended Kalman filter")
-        print("3: Moving horizon estimator")
-        estimator_choice = int(input("enter choice (1, 2 or 3): "))
-        if estimator_choice in (1, 2, 3):
-            run_mpc_controller_stochastic_sim(estimator_choice)
-        else:
-            print("Invalid estimator choice. Exiting")
-    else:
-        print("Invalid choice. Exiting.")
+            print("Invalid choice. Exiting.")
+    finally: # profiler; uncomment to use
+        profiler.disable()
+        #stats = pstats.Stats(profiler)
+        #stats.dump_stats(f'{filter_dict[estimator_choice]}_{controller_dict[int(choice)]}.prof')

@@ -4,7 +4,6 @@ from scipy.optimize import minimize
 from autograd import grad, jacobian
 
 
-
 class gaussian:
     def __init__(self, mean: np.ndarray, cov: np.ndarray):
         self.mean = mean
@@ -355,3 +354,17 @@ def run_mhe(mhe: MHE, z:np.ndarray, odometry: list):
     x_est = mhe.solve(0)
 
     return x_est
+
+filter_dict = {
+1: "GT",
+2: "EKF",
+3: "MHE"
+}
+
+controller_dict = {
+1: "P",
+2: "PPO",
+3: "MPC",
+4: "SMPC",
+5: "TMPC"
+}
