@@ -2,7 +2,8 @@ import numpy as np
 import config
 from scipy.optimize import minimize
 from autograd import grad, jacobian
-
+from casadi import vertcat
+from acados_template import AcadosOcpSolver, AcadosOcp
 
 class gaussian:
     def __init__(self, mean: np.ndarray, cov: np.ndarray):
@@ -84,15 +85,6 @@ class sensor_model:
 
 
 # --- Extended Kalman Filter ---
-#
-# usage:
-# initialization:
-# ekf = EKF(
-#     dynamic_model(),
-#    sensor_model())
-#
-# running:
-# est = run_ekf(ekf, z_meas, input)
 
 class EKF:
     def __init__(self, dyn_mod: dynamic_model, sens_mod: sensor_model, dt=config.TIME_STEP):
@@ -130,16 +122,6 @@ class EKF:
 
 
 # --- Moving Horizon Estimator ---
-#
-# usage:
-# initialization:
-# mhe = MHE(
-#     dynamic_model(),
-#     sensor_model(),
-#     mhe_horizon)
-#
-# running:
-# est = run_mhe(mhe, z_meas, input)
 
 class MHE:
     def __init__(self, dyn_mod: dynamic_model, sens_mod: sensor_model, M: int, dt=config.TIME_STEP):
@@ -168,6 +150,7 @@ class MHE:
         # Warm start (state trajectory guess)
         self.x_guess = None
 
+        self.ocp = AcadosOcp()
 
     def set_arrival_cost(self, x_prior: np.ndarray, P_prior: np.ndarray):
         """Set the arrival cost prior state and covariance"""
@@ -207,8 +190,8 @@ class MHE:
         return J
     
     
-    def kalman_update(self, est_state: bool):
-        """Kalman based update to the prior covariance, and state if needed"""
+    def kalman_update(self):
+        """Kalman based update to the prior covariance"""
         H = self.sens_mod.H(self.x_prior)
         F = self.dyn_mod.F(self.x_prior, self.u_buffer[-1])
         P = self.P_prior
@@ -220,13 +203,6 @@ class MHE:
         K = P_pred @ H.T @ np.linalg.inv(S)
         P_upd = (np.eye(self.nx) - K @ H) @ P_pred
         self.P_prior = P_upd
-
-        if est_state:
-            # Update state estimate using last measurement
-            z_last = self.z_buffer.reshape(2,1)
-            z_pred = self.sens_mod.h(self.x_prior)
-            innovation = z_last - z_pred
-            self.x_prior = self.x_prior + K @ innovation
 
 
     def solve(self, optimizer: int):
@@ -244,15 +220,12 @@ class MHE:
         # Determine active horizon length
         N = min(self.M, total_meas)
 
-        if N == 1:
-            self.kalman_update(est_state=True) # Horizon of 1 is just a Kalman update
-            return self.x_prior
         
         # Extract last N measurements and inputs
         z_seq = self.z_buffer.T[-N:].reshape(N, self.nz, 1)
         u_seq = self.u_buffer[-N:]
 
-        # Initialize trajectory guess
+        # Initialize trajectory guess with the last optimum for warm start
         if self.x_guess is None or len(self.x_guess) != N:
             self.x_guess = np.tile(self.x_prior, (N, 1))
         else:
@@ -277,10 +250,10 @@ class MHE:
                 method='L-BFGS-B',
                 options={'maxiter': 200, 'ftol': 1e-8, 'disp': False}
             )
-        if optimizer == 1:
+        elif optimizer == 1:
             raise NotImplementedError("Acados optimizer not implemented yet.")
-
-        # Reshape optimized trajectory
+        
+        
         X_opt = res.x.reshape(N, self.nx, 1)
         self.x_guess = X_opt  # store for warm start next iteration
 
