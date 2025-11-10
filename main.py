@@ -189,7 +189,7 @@ def run_mpc_controller_sim(estimator: int):
         
         if config.MOVING_REFERENCE:
             if config.MOVING_REFERENCE_TYPE == 'sine':
-                current_target_height = np.sin(current_step * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+                current_target_height = np.sin(config.TIME_STEP*current_step * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
             elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
                 L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
                 L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
@@ -198,7 +198,7 @@ def run_mpc_controller_sim(estimator: int):
             current_target_height = config.TARGET_HEIGHT
         force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel, current_target_height)
         # apply first control
-        ball.apply_force(force, disturbance=False)
+        ball.apply_force(force, disturbance=True)
 
         positions.append(ball.y)
         velocities.append(ball.velocity)
@@ -304,7 +304,7 @@ def run_mpc_controller_stochastic_sim(estimator: int):
 
         if config.MOVING_REFERENCE:
             if config.MOVING_REFERENCE_TYPE == 'sine':
-                current_target_height = np.sin(current_step * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+                current_target_height = np.sin(current_step * config.TIME_STEP * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
             elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
                 L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
                 L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
@@ -461,7 +461,7 @@ def run_mpc_controller_tube_sim(estimator: int):
 
         if config.MOVING_REFERENCE:
             if config.MOVING_REFERENCE_TYPE == 'sine':
-                current_target_height = np.sin(current_step * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+                current_target_height = np.sin(current_step* config.TIME_STEP * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
             elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
                 L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
                 L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
@@ -469,7 +469,7 @@ def run_mpc_controller_tube_sim(estimator: int):
         else:
             current_target_height = config.TARGET_HEIGHT
         force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel, current_target_height)
-        ball.apply_force(force, disturbance=False)
+        ball.apply_force(force, disturbance=True)
 
         positions.append(ball.y)
         velocities.append(ball.velocity)
