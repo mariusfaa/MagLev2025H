@@ -9,7 +9,6 @@ from acados_template import AcadosModel, AcadosOcpSolver, AcadosOcp, AcadosOcpOp
 
 class gaussian:
     def __init__(self, mean: np.ndarray, cov: np.ndarray):
-    def __init__(self, mean: np.ndarray, cov: np.ndarray):
         self.mean = mean
         self.cov = cov
 
@@ -521,7 +520,8 @@ def run_mhe(mhe: MHE, z: np.ndarray, odometry: list):
 filter_dict = {
     1: "GT",
     2: "EKF",
-    3: "MHE"
+    3: "MHE",
+    4: "MHE_acados"
 }
 
 
