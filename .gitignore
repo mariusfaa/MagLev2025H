@@ -46,3 +46,8 @@ coverage.xml
 
 # Profiler
 *.prof
+
+# Acados
+acados_example_mhe/
+c_generated_code/
+acados_mhe.json

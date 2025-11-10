@@ -1,15 +1,16 @@
 import numpy as np
 import config
 from scipy.optimize import minimize
+from scipy.linalg import block_diag
 from autograd import grad, jacobian
-from casadi import vertcat
-from acados_template import AcadosOcpSolver, AcadosOcp
+import casadi as ca
+from acados_template import AcadosModel, AcadosOcpSolver, AcadosOcp, AcadosOcpOptions
+
 
 class gaussian:
     def __init__(self, mean: np.ndarray, cov: np.ndarray):
         self.mean = mean
         self.cov = cov
-
 
     def mahalanobis_distance(self, x: np.ndarray) -> float:
         """Normalized distance from mean"""
@@ -21,33 +22,92 @@ class gaussian:
 
 class dynamic_model:
     def __init__(self, variances: np.ndarray):
-        self.dt = config.TIME_STEP # discretization time
-        self.nx = len(variances) # number of states
-        self.Q = np.diag(variances) # process noise covariance matrix
-    
+        self.dt = config.TIME_STEP  # discretization time
+        self.nx = len(variances)  # number of states
+        self.Q = np.diag(variances)  # process noise covariance matrix
 
     def f(self, x: np.ndarray, u) -> np.ndarray:
         """x^(k+1) = f(x^k, u^k)"""
-        x.reshape(self.nx,1)
+        x.reshape(self.nx, 1)
         A = np.array([
             [1, self.dt],
             [0, 1]
-            ])
+        ])
         B = np.array([
             [0, 0],
             [1/config.BALL_MASS, -config.GRAVITY]
         ])*self.dt
-        u_mod = np.vstack([u,1]) # adding artificial input as gravity, in addition to real input
+        u_mod = np.vstack([u, 1])  # adding artificial gravity as artificial input
         x_next = np.stack(A@x + B@u_mod)
         return x_next
     
+    def acados_model(self) -> AcadosModel:
 
+        model = AcadosModel()
+
+        model.name = 'ball'
+
+        # states
+        x1 = ca.SX.sym('x1')
+        x2 = ca.SX.sym('x2')
+        x = ca.vertcat(x1, x2)
+
+        # control input
+        u = ca.SX.sym('u', 1)
+        u_mod = ca.vertcat(u, 1)  # adding gravity as artificial input
+
+        # state noise
+        w_x1 = ca.SX.sym('w_x1')
+        w_x2 = ca.SX.sym('w_x2')
+        w = ca.vertcat(w_x1, w_x2)
+
+        # xdot for implicit solvers
+        x1_dot = ca.SX.sym('x1_dot')
+        x2_dot = ca.SX.sym('x2_dot')
+        x_dot = ca.vertcat(x1_dot, x2_dot)
+
+        # continuous-time dynamics
+        Ac = ca.DM([
+            [0, 1],
+            [0, 0]
+        ])
+        Bc = ca.DM([
+            [0, 0],
+            [1/config.BALL_MASS, -config.GRAVITY]
+        ])
+        f_expl = ca.mtimes(Ac, x) + ca.mtimes(Bc, u_mod)
+
+        # discrete-time dynamics
+        A = ca.DM([
+            [1, self.dt],
+            [0, 1]
+        ])
+        B = ca.DM([
+            [0, 0],
+            [1/config.BALL_MASS, -config.GRAVITY]
+        ])
+        f_disc = ca.mtimes(A, x) + ca.mtimes(B, u_mod)
+
+        # adding additive state noise
+        #f_expl += w
+        f_disc += w
+
+        model.disc_dyn_expr = f_disc
+        #model.f_expl_expr = f_expl
+        #model.f_impl_expr = x_dot - f_expl
+        model.x = x
+        model.xdot = x_dot
+        model.u = w
+        model.p = u
+        
+        return model
+
+    
+    
     def F(self, x: np.ndarray, u) -> np.ndarray:
         """Jacobian of dynamical function"""
-        ff = lambda x, u: (self.f(x, u)).flatten()
-        jac = jacobian(ff, 0)
-        return jac(x, u).reshape(self.nx,self.nx)
-
+        jac = jacobian(lambda x, u: (self.f(x, u)).flatten(), 0)
+        return jac(x, u).reshape(self.nx, self.nx)
 
     def predict_x(self, x_prev: gaussian, u) -> gaussian:
         F = self.F(x_prev.mean, u)
@@ -57,23 +117,26 @@ class dynamic_model:
         return x_pred
 
 
-
 class sensor_model:
     def __init__(self, variances):
-        self.dt = config.TIME_STEP # discretization time
-        self.nz = len(variances) # number of measurements
-        self.R = np.diag(variances) # measurement noise covariance
+        self.dt = config.TIME_STEP  # discretization time
+        self.nz = len(variances)  # number of measurements
+        self.R = np.diag(variances)  # measurement noise covariance
 
     def h(self, x: np.ndarray) -> np.array:
         """z^k = h(x^k)"""
-        x.reshape(len(x),1)
+        x.reshape(len(x), 1)
         return np.eye(self.nz, len(x))@x
+    
+    def acados_model(self) -> AcadosModel:
 
+        model = AcadosModel()
+
+        model.z
 
     def H(self, x: np.ndarray) -> np.ndarray:
         """Jacobian of measurement function"""
         return jacobian(self.h, 0)(x.flatten())
-
 
     def predict_z(self, x_pred: gaussian) -> gaussian:
         H = self.H(x_pred.mean)
@@ -81,27 +144,24 @@ class sensor_model:
         z_pred_cov = H @ x_pred.cov @ H.T + self.R
         z_pred = gaussian(z_pred_mean, z_pred_cov)
         return z_pred
-    
 
 
 # --- Extended Kalman Filter ---
 
 class EKF:
     def __init__(self, dyn_mod: dynamic_model, sens_mod: sensor_model, dt=config.TIME_STEP):
-        self.dt = dt # discretization time
+        self.dt = dt  # discretization time
         self.dyn_mod = dyn_mod
         self.sens_mod = sens_mod
 
         self.state_ests = []  # buffer for estimated states
         self.meas_ests = []   # buffer for estimated measurements
 
-
     def predict(self, x_est_prev: gaussian, u) -> tuple[gaussian, gaussian]:
         """Perform one EKF prediction step"""
         x_est_pred = self.dyn_mod.predict_x(x_est_prev, u)
         z_est_pred = self.sens_mod.predict_z(x_est_pred)
         return x_est_pred, z_est_pred
-    
 
     def update(self, x_est_pred: gaussian, z_est_pred: gaussian, z) -> gaussian:
         """Perform one EKF update step"""
@@ -120,12 +180,132 @@ class EKF:
         return x_est_upd
 
 
-
 # --- Moving Horizon Estimator ---
+
+class MHE_acados:
+    def __init__(self, dyn_mod: dynamic_model,
+                 sens_mod: sensor_model,
+                 M: int,
+                 Q0: np.ndarray,
+                 dt=config.TIME_STEP):
+
+        self.dt = dt       # discretization time
+        self.M = M         # maximum horizon length
+        self.P_prior = Q0  # prior covariance
+
+        # extract model info
+        self.dyn_mod = dyn_mod
+        self.sens_mod = sens_mod
+        self.model = dyn_mod.acados_model()
+
+        self.nx = self.model.x.rows()
+        self.nu = self.model.u.rows()
+
+        # buffer
+        self.x_ests = np.empty((self.nx, 0))
+
+        def _build_solver(self):
+            Q = self.dyn_mod.Q
+            R = self.sens_mod.R
+
+            ocp = AcadosOcp()
+            ocp.model = self.model
+
+            ocp.dims.N = self.M
+            ocp.solver_options.tf = self.M * self.dt
+
+            ny_0 = 3*self.nx   # h(x), w and arrival cost
+            ny = 2*self.nx     # h(x), w
+            nparam = self.model.p.rows()
+
+            # cost type nonlinear least squares
+            ocp.cost.cost_type_0 = 'NONLINEAR_LS'
+            ocp.cost.cost_type = 'NONLINEAR_LS'
+            ocp.cost.cost_type_e = 'LINEAR_LS'
+
+            ocp.model.cost_y_expr_0 = ca.vertcat(self.model.x, self.model.x, self.model.x)
+            ocp.model.cost_y_expr = ca.vertcat(self.model.x, self.model.x)
+            ocp.cost.W_0 = block_diag(R, Q, Q0)
+            ocp.cost.W = block_diag(R, Q)
+            ocp.cost.yref_0 = np.zeros((ny_0,))
+            ocp.cost.yref = np.zeros((ny,))
+            ocp.cost.yref_e = np.zeros(0)
+            ocp.parameter_values = np.zeros((nparam, ))
+
+            ocp.solver_options.qp_solver = 'FULL_CONDENSING_QPOASES'
+            ocp.solver_options.hessian_approx = 'GAUSS_NEWTON'
+            ocp.solver_options.integrator_type = 'DISCRETE'
+            ocp.solver_options.nlp_solver_type = 'SQP_RTI'
+            ocp.solver_options.nlp_solver_max_iter = 50
+            ocp.solver_options.cost_scaling = np.ones((self.M + 1,))
+
+            solver = AcadosOcpSolver(ocp, json_file='acados_mhe.json')
+            return solver
+        
+        self.solver = _build_solver(self)
+
+    def kalman_update(self, x: np.ndarray, u) -> np.ndarray:
+        """Kalman based update to the prior covariance"""
+        H = self.sens_mod.H(x)
+        F = self.dyn_mod.F(x, u)
+        P = self.P_prior
+        Q = self.dyn_mod.Q
+        R = self.sens_mod.R
+
+        P_pred = F @ P @ F.T + Q
+        S = H @ P_pred @ H.T + R
+        K = P_pred @ H.T @ np.linalg.inv(S)
+        P_upd = (np.eye(self.nx) - K @ H) @ P_pred
+        return P_upd
+    
+
+    def run_mhe(self, y_meas: np.ndarray, odometry):
+        nx = self.nx
+        nu = self.nu
+        y_meas = y_meas.reshape(nx,)
+
+        if len(odometry) == 0:
+            u = 0
+            self.x0_bar = y_meas
+        else:
+            u = odometry[-1]
+
+        # shift horizon and update references
+        yref_0 = np.zeros(3*nx)
+        yref_0[:nx] = y_meas
+        yref_0[2*nx:] = self.x0_bar#@np.linalg.inv(self.P_prior)  # arrival cost
+        self.solver.set(0, "yref", yref_0)
+        self.solver.set(0, "p", u)
+
+        yref = np.zeros(2*nx)
+        yref[:nx] = y_meas
+        for j in range(1, self.M):
+            self.solver.set(j, "yref", yref)
+            self.solver.set(j, "p", u)
+
+        # solve
+        if u != 0:
+            status = self.solver.solve()
+            if status != 0:
+                print(f"MHE solver returned status {status}")
+
+        # extract estimate
+            x_est = self.solver.get(self.M, "x")
+
+        # update arrival cost (for next iteration)
+            self.x0_bar = self.solver.get(1, "x")
+        else:
+            x_est = y_meas
+        self.P_prior = self.kalman_update(self.x0_bar.reshape(nx, 1), u)
+        #Q0_new = np.linalg.inv(self.P_prior)
+
+        self.x_ests = np.append(self.x_ests, x_est.reshape(nx, 1), axis=1)
+        return x_est
+
 
 class MHE:
     def __init__(self, dyn_mod: dynamic_model, sens_mod: sensor_model, M: int, dt=config.TIME_STEP):
-        self.dt = dt # discretization time
+        self.dt = dt  # discretization time
 
         self.dyn_mod = dyn_mod
         self.sens_mod = sens_mod
@@ -139,18 +319,16 @@ class MHE:
         self.V = np.linalg.inv(sens_mod.R)
 
         # Buffers for states, inputs and measurements
-        self.x_ests = np.empty((self.nx,0))
-        self.z_buffer = np.empty((self.nz,0))
+        self.x_ests = np.empty((self.nx, 0))
+        self.z_buffer = np.empty((self.nz, 0))
         self.u_buffer = []
 
-        # Initialize prior. These values are immediately overwritten in main
+        # Initialize prior. These values are immediately overwritten
         self.x_prior = np.zeros((self.nx, 1))
         self.P_prior = np.eye(self.nx)
 
         # Warm start (state trajectory guess)
         self.x_guess = None
-
-        self.ocp = AcadosOcp()
 
     def set_arrival_cost(self, x_prior: np.ndarray, P_prior: np.ndarray):
         """Set the arrival cost prior state and covariance"""
@@ -161,7 +339,6 @@ class MHE:
         """Add new measurement and input"""
         self.z_buffer = np.append(self.z_buffer, z, axis=1)
         self.u_buffer.append(u)
-
 
     def cost_function(self, x_flat: np.ndarray, z_seq, u_seq, x_prior, P_prior_inv, N):
         """Compute the MHE cost for the current horizon"""
@@ -188,8 +365,7 @@ class MHE:
                 J += float(proc_noise.T @ self.W @ proc_noise)
 
         return J
-    
-    
+
     def kalman_update(self):
         """Kalman based update to the prior covariance"""
         H = self.sens_mod.H(self.x_prior)
@@ -203,7 +379,6 @@ class MHE:
         K = P_pred @ H.T @ np.linalg.inv(S)
         P_upd = (np.eye(self.nx) - K @ H) @ P_pred
         self.P_prior = P_upd
-
 
     def solve(self, optimizer: int):
         """
@@ -220,7 +395,6 @@ class MHE:
         # Determine active horizon length
         N = min(self.M, total_meas)
 
-        
         # Extract last N measurements and inputs
         z_seq = self.z_buffer.T[-N:].reshape(N, self.nz, 1)
         u_seq = self.u_buffer[-N:]
@@ -239,7 +413,7 @@ class MHE:
         x0 = self.x_guess.flatten()
 
         # ---Optimize cost function---
-        
+
         # Using scipy minimize
         if optimizer == 0:
             P_prior_inv = np.linalg.inv(self.P_prior)
@@ -252,26 +426,24 @@ class MHE:
             )
         elif optimizer == 1:
             raise NotImplementedError("Acados optimizer not implemented yet.")
-        
-        
+
         X_opt = res.x.reshape(N, self.nx, 1)
         self.x_guess = X_opt  # store for warm start next iteration
 
         # Update arrival cost (last state becomes new prior)
         self.x_prior = X_opt[-1]
-        self.kalman_update(est_state=False) # update prior covariance only
+        self.kalman_update()  # update prior covariance only
 
         self.x_ests = np.append(self.x_ests, self.x_prior, axis=1)
 
         return self.x_prior
-    
 
 
 # -------------------------
 # --- Utility functions ---
-#--------------------------
+# -------------------------
 
-# --- Adding noise to measurements ---
+
 def add_noise(pos, vel):
     z_pos = pos + np.random.normal(0, config.STD_POS)
     z_vel = vel + np.random.normal(0, config.STD_VEL)
@@ -279,22 +451,34 @@ def add_noise(pos, vel):
 
     return z_meas
 
+
 def init_estimator(estimator: int):
     """
     2: ekf\n
-    3: mhe
+    3: mhe\n
+    4: mhe_acados
     """
     if estimator == 2:
         return EKF(
-            dynamic_model(np.array([config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL])),
+            dynamic_model(
+                np.array([config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL])),
             sensor_model(([config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL]))
-            )
+        )
     if estimator == 3:
         return MHE(
-            dynamic_model(np.array([config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL])),
+            dynamic_model(
+                np.array([config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL])),
             sensor_model(([config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL])),
             config.MHE_HORIZON
-            )
+        )
+    if estimator == 4:
+        return MHE_acados(
+            dynamic_model(
+                np.array([config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL])),
+            sensor_model(([config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL])),
+            config.MHE_HORIZON,
+            np.diag([1, 1])
+        )
 
 
 def run_ekf(ekf: EKF, z: np.ndarray, odometry: list):
@@ -316,7 +500,7 @@ def run_ekf(ekf: EKF, z: np.ndarray, odometry: list):
     return est_pos, est_vel
 
 
-def run_mhe(mhe: MHE, z:np.ndarray, odometry: list):
+def run_mhe(mhe: MHE, z: np.ndarray, odometry: list):
     u = odometry[-1] if len(odometry) > 0 else 0
     mhe.add_measurement(z, u)
     if len(odometry) == 0:
@@ -328,16 +512,18 @@ def run_mhe(mhe: MHE, z:np.ndarray, odometry: list):
 
     return x_est
 
+
 filter_dict = {
-1: "GT",
-2: "EKF",
-3: "MHE"
+    1: "GT",
+    2: "EKF",
+    3: "MHE"
 }
 
+
 controller_dict = {
-1: "P",
-2: "PPO",
-3: "MPC",
-4: "SMPC",
-5: "TMPC"
+    1: "P",
+    2: "PPO",
+    3: "MPC",
+    4: "SMPC",
+    5: "TMPC"
 }
