@@ -9,10 +9,12 @@ from acados_template import AcadosModel, AcadosOcpSolver, AcadosOcp, AcadosOcpOp
 
 class gaussian:
     def __init__(self, mean: np.ndarray, cov: np.ndarray):
+    def __init__(self, mean: np.ndarray, cov: np.ndarray):
         self.mean = mean
         self.cov = cov
 
     def mahalanobis_distance(self, x: np.ndarray) -> float:
+        """Normalized distance from mean"""
         """Normalized distance from mean"""
 
         err = x.reshape(-1, 1) - self.mean.reshape(-1, 1)
@@ -158,6 +160,9 @@ class EKF:
         self.meas_ests = []   # buffer for estimated measurements
 
     def predict(self, x_est_prev: gaussian, u) -> tuple[gaussian, gaussian]:
+        """Perform one EKF prediction step"""
+        x_est_pred = self.dyn_mod.predict_x(x_est_prev, u)
+        z_est_pred = self.sens_mod.predict_z(x_est_pred)
         """Perform one EKF prediction step"""
         x_est_pred = self.dyn_mod.predict_x(x_est_prev, u)
         z_est_pred = self.sens_mod.predict_z(x_est_pred)

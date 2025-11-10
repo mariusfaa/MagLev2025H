@@ -15,6 +15,7 @@ from environment import BallEnv
 from ppo_agent import create_ppo_agent, train_agent, load_agent
 from mpc_controller import MPCController
 from mpc_controller_stoch import MPCControllerStochastic
+from mpc_controller_tube import MPCControllerTube
 from filter import *
 
 def run_p_controller_sim():
@@ -152,7 +153,7 @@ def run_mpc_controller_sim(estimator: int):
     # --- Initialize chosen estimator ---
     if estimator == 2:
         ekf = init_estimator(estimator)
-    if estimator == 3:
+    if estimator in (3, 4):
         mhe = init_estimator(estimator)
     
     positions = []
@@ -162,13 +163,13 @@ def run_mpc_controller_sim(estimator: int):
     predicted_controls = []
 
     measurements = np.empty((2,0))
-
+    current_step = 0
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-
+        current_step += 1
 
         # --- State estimation ---
         z_meas = add_noise(ball.y, ball.velocity)
@@ -181,8 +182,16 @@ def run_mpc_controller_sim(estimator: int):
         else: # no estimator, use ground truth
             est_pos, est_vel = ball.y, ball.velocity
         
-
-        force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel)
+        if config.MOVING_REFERENCE:
+            if config.MOVING_REFERENCE_TYPE == 'sine':
+                current_target_height = np.sin(config.TIME_STEP*current_step * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+            elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
+                L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
+                L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
+                current_target_height = L1 / (1 + np.exp(np.sin(config.SIGMOID_REFERENCE_PERIOD*(current_step*config.TIME_STEP - config.SIGMOID_REFERENCE_SHIFT))*(-config.SIGMOID_REFERENCE_SLOPE))) + L2
+        else:
+            current_target_height = config.TARGET_HEIGHT
+        force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel, current_target_height)
         # apply first control
         ball.apply_force(force, disturbance=True)
 
@@ -206,9 +215,9 @@ def run_mpc_controller_sim(estimator: int):
         # --- Drawing ---
         screen.fill(config.WHITE)
         pygame.draw.line(screen, config.BLACK, (0, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), 2)
-        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), 2)
+        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - current_target_height), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - current_target_height), 2)
         target_text = font.render('Target Height', True, config.GREEN)
-        screen.blit(target_text, (5, config.SCREEN_HEIGHT - config.TARGET_HEIGHT - 25))
+        screen.blit(target_text, (5, config.SCREEN_HEIGHT - current_target_height - 25))
         ball.draw(screen)
 
         # --- Info Text ---
@@ -232,7 +241,7 @@ def run_mpc_controller_sim(estimator: int):
                 measurements=measurements,
                 estimated_states=ekf.state_ests,
                 estimated_measurements=ekf.meas_ests)
-    if estimator == 3:
+    if estimator in (3, 4):
         np.savez("mhe_data.npz", ground_truth=[positions, velocities],
                 measurements=measurements,
                 estimated_states=mhe.x_ests)
@@ -252,7 +261,7 @@ def run_mpc_controller_stochastic_sim(estimator: int):
     # --- Initialize chosen estimator ---
     if estimator == 2:
         ekf = init_estimator(estimator)
-    if estimator == 3:
+    elif estimator in (3, 4):
         mhe = init_estimator(estimator)
     
     positions = []
@@ -262,13 +271,13 @@ def run_mpc_controller_stochastic_sim(estimator: int):
     predicted_controls = []
 
     measurements = np.empty((2,0))
-
+    current_step = 0
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-
+        current_step += 1
 
         # --- State estimation ---
         z_meas = add_noise(ball.y, ball.velocity)
@@ -278,13 +287,23 @@ def run_mpc_controller_stochastic_sim(estimator: int):
             est_pos, est_vel = run_ekf(ekf, z_meas, forces)
         elif estimator == 3: # MHE
             est_pos, est_vel = run_mhe(mhe, z_meas, forces)
+        elif estimator == 4:  # MHE acados
+            est_pos, est_vel = mhe.run_mhe(z_meas, forces)
         else: # no estimator, use ground truth
             est_pos, est_vel = ball.y, ball.velocity
 
-        
-        force, pred_X, pred_U = mpc_controller_stoch.get_action(est_pos, est_vel)
+        if config.MOVING_REFERENCE:
+            if config.MOVING_REFERENCE_TYPE == 'sine':
+                current_target_height = np.sin(current_step * config.TIME_STEP * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+            elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
+                L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
+                L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
+                current_target_height = L1 / (1 + np.exp(np.sin(config.SIGMOID_REFERENCE_PERIOD*(current_step*config.TIME_STEP - config.SIGMOID_REFERENCE_SHIFT))*(-config.SIGMOID_REFERENCE_SLOPE))) + L2
+        else:
+            current_target_height = config.TARGET_HEIGHT
+        force, pred_X, pred_U = mpc_controller_stoch.get_action(est_pos, est_vel, current_target_height)
         # apply first control
-        ball.apply_force(force, disturbance=True)
+        ball.apply_force(force, disturbance=False)
 
         positions.append(ball.y)
         velocities.append(ball.velocity)
@@ -302,13 +321,12 @@ def run_mpc_controller_stochastic_sim(estimator: int):
         else:
             predicted_controls.append(None)
 
-
         # --- Drawing ---
         screen.fill(config.WHITE)
         pygame.draw.line(screen, config.BLACK, (0, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), 2)
-        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.TARGET_HEIGHT), 2)
+        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - current_target_height), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - current_target_height), 2)
         target_text = font.render('Target Height', True, config.GREEN)
-        screen.blit(target_text, (5, config.SCREEN_HEIGHT - config.TARGET_HEIGHT - 25))
+        screen.blit(target_text, (5, config.SCREEN_HEIGHT - current_target_height - 25))
         ball.draw(screen)
 
         # --- Info Text ---
@@ -332,7 +350,7 @@ def run_mpc_controller_stochastic_sim(estimator: int):
                 measurements=measurements,
                 estimated_states=ekf.state_ests,
                 estimated_measurements=ekf.meas_ests)
-    if estimator == 3:
+    elif estimator in (3, 4):
         np.savez("mhe_data.npz", ground_truth=[positions, velocities],
                 measurements=measurements,
                 estimated_states=mhe.x_ests)
@@ -369,6 +387,110 @@ def plot_data(file_path, title):
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.show()
 
+def run_mpc_controller_tube_sim(estimator: int):
+    """Runs the simulation with the Tube MPC Controller."""
+    pygame.init()
+    screen = pygame.display.set_mode((config.SCREEN_WIDTH, config.SCREEN_HEIGHT))
+    pygame.display.set_caption("Ball Simulator - Tube MPC Controller")
+    clock = pygame.time.Clock()
+    font = pygame.font.Font(None, 30)
+
+    ball = Ball(config.SCREEN_WIDTH / 2, config.GROUND_HEIGHT + config.BALL_RADIUS)
+    mpc_controller = MPCControllerTube(N=config.STD_MPC_HORIZON, dt=config.TIME_STEP)
+
+    # --- Initialize chosen estimator ---
+    if estimator == 2:
+        ekf = init_estimator(estimator)
+    elif estimator in (3, 4):
+        mhe = init_estimator(estimator)
+
+    positions = []
+    velocities = []
+    forces = []
+    predicted_trajectories = []
+    predicted_controls = []
+
+    measurements = np.empty((2,0))
+    current_step = 0
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+        current_step += 1
+
+        # --- State estimation ---
+        z_meas = add_noise(ball.y, ball.velocity)
+        measurements = np.append(measurements, z_meas, axis=1)
+
+        if estimator == 2:  # EKF
+            est_pos, est_vel = run_ekf(ekf, z_meas, forces)
+        elif estimator == 3:  # MHE
+            est_pos, est_vel = run_mhe(mhe, z_meas, forces)
+        elif estimator == 4:  # MHE acados
+            est_pos, est_vel = mhe.run_mhe(z_meas, forces)
+        else:  # no estimator, use ground truth
+            est_pos, est_vel = ball.y, ball.velocity
+
+        if config.MOVING_REFERENCE:
+            if config.MOVING_REFERENCE_TYPE == 'sine':
+                current_target_height = np.sin(current_step* config.TIME_STEP * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+            elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
+                L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
+                L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
+                current_target_height = L1 / (1 + np.exp(np.sin(config.SIGMOID_REFERENCE_PERIOD*(current_step*config.TIME_STEP - config.SIGMOID_REFERENCE_SHIFT))*(-config.SIGMOID_REFERENCE_SLOPE))) + L2
+        else:
+            current_target_height = config.TARGET_HEIGHT
+        force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel, current_target_height)
+        ball.apply_force(force, disturbance=True)
+
+        positions.append(ball.y)
+        velocities.append(ball.velocity)
+        forces.append(force)
+
+        if pred_X is not None:
+            predicted_trajectories.append(pred_X.tolist())
+        else:
+            predicted_trajectories.append(None)
+
+        if pred_U is not None:
+            predicted_controls.append(pred_U.flatten().tolist())
+        else:
+            predicted_controls.append(None)
+
+        # --- Drawing ---
+        screen.fill(config.WHITE)
+        pygame.draw.line(screen, config.BLACK, (0, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), 2)
+        pygame.draw.line(screen, config.GREEN, (0, config.SCREEN_HEIGHT - current_target_height), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - current_target_height), 2)
+        target_text = font.render('Target Height', True, config.GREEN)
+        screen.blit(target_text, (5, config.SCREEN_HEIGHT - current_target_height - 25))
+        ball.draw(screen)
+
+        height_text = font.render(f'Height: {ball.y:.2f}', True, config.BLACK)
+        velocity_text = font.render(f'Velocity: {ball.velocity:.2f}', True, config.BLACK)
+        force_text = font.render(f'Force: {force:.2f}', True, config.BLACK)
+        screen.blit(height_text, (10, 10))
+        screen.blit(velocity_text, (10, 40))
+        screen.blit(force_text, (10, 70))
+
+        pygame.display.flip()
+        clock.tick(1 / config.TIME_STEP)
+
+    pygame.quit()
+    qx, qu, lbu, ubu, r, delta_u_max = mpc_controller.sizes()
+    ref = config.TARGET_HEIGHT
+    np.savez("mpc_data.npz", positions=positions, forces=forces, trajectories=predicted_trajectories, controls=predicted_controls, N=config.STD_MPC_HORIZON, qx=qx, qu=qu, lbu=lbu, ubu=ubu, r=r, ref=ref, delta_u_max=delta_u_max)
+
+    if estimator == 2:
+        np.savez("ekf_data.npz", ground_truth=[positions, velocities],
+                measurements=measurements,
+                estimated_states=ekf.state_ests,
+                estimated_measurements=ekf.meas_ests)
+    elif estimator in (3, 4):
+        np.savez("mhe_data.npz", ground_truth=[positions, velocities],
+                measurements=measurements,
+                estimated_states=mhe.x_ests)
+
 
 if __name__ == '__main__':
     env = BallEnv()
@@ -384,35 +506,45 @@ if __name__ == '__main__':
     print("2: RL PPO Controller")
     print("3: Standard MPC controller")
     print("4: Stochastic MPC controller")
-    choice = input("Enter choice (1, 2, 3 or 4): ")
-    try:
-        if choice == '1':
-            run_p_controller_sim()
-        elif choice == '2':
-            run_ppo_controller_sim()
-        elif choice == '3':
-            print("Choose estimator type:")
-            print("1: none (use ground truth)")
-            print("2: Extended Kalman filter")
-            print("3: Moving horizon estimator")
-            estimator_choice = int(input("enter choice (1, 2 or 3): "))
-            if estimator_choice in (1, 2, 3):
-                run_mpc_controller_sim(estimator_choice)
-            else:
-                print("Invalid estimator choice. Exiting")
-        elif choice == '4':
-            print("Choose estimator type:")
-            print("1: none (use ground truth)")
-            print("2: Extended Kalman filter")
-            print("3: Moving horizon estimator")
-            estimator_choice = int(input("enter choice (1, 2 or 3): "))
-            if estimator_choice in (1, 2, 3):
-                run_mpc_controller_stochastic_sim(estimator_choice)
-            else:
-                print("Invalid estimator choice. Exiting")
+    print("5: Tube MPC controller")
+    choice = input("Enter choice (1, 2, 3, 4 or 5): ")
+
+    if choice == '1':
+        run_p_controller_sim()
+    elif choice == '2':
+        run_ppo_controller_sim()
+    elif choice == '3':
+        print("Choose estimator type:")
+        print("1: none (use ground truth)")
+        print("2: Extended Kalman filter")
+        print("3: Moving horizon estimator")
+        print("4: Moving horizon estimator with acados")
+        estimator_choice = int(input("enter choice (1, 2, 3 or 4): "))
+        if estimator_choice in (1, 2, 3, 4):
+            run_mpc_controller_sim(estimator_choice)
         else:
-            print("Invalid choice. Exiting.")
-    finally: # profiler; uncomment to use
-        profiler.disable()
-        #stats = pstats.Stats(profiler)
-        #stats.dump_stats(f'{filter_dict[estimator_choice]}_{controller_dict[int(choice)]}.prof')
+            print("Invalid estimator choice. Exiting")
+    elif choice == '4':
+        print("Choose estimator type:")
+        print("1: none (use ground truth)")
+        print("2: Extended Kalman filter")
+        print("3: Moving horizon estimator")
+        print("4: Moving horizon estimator with acados")
+        estimator_choice = int(input("enter choice (1, 2, 3 or 4): "))
+        if estimator_choice in (1, 2, 3, 4):
+            run_mpc_controller_stochastic_sim(estimator_choice)
+        else:
+            print("Invalid estimator choice. Exiting")
+    elif choice == '5':
+        print("Choose estimator type:")
+        print("1: none (use ground truth)")
+        print("2: Extended Kalman filter")
+        print("3: Moving horizon estimator")
+        print("4: Moving horizon estimator with acados")
+        estimator_choice = int(input("enter choice (1, 2, 3 or 4): "))
+        if estimator_choice in (1, 2, 3, 4):
+            run_mpc_controller_tube_sim(estimator_choice)
+        else:
+            print("Invalid estimator choice. Exiting")
+    else:
+        print("Invalid choice. Exiting.")
