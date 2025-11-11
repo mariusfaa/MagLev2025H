@@ -86,7 +86,7 @@ class dynamic_model:
         B = ca.DM([
             [0, 0],
             [1/config.BALL_MASS, -config.GRAVITY]
-        ])
+        ])*self.dt
         f_disc = ca.mtimes(A, x) + ca.mtimes(B, u_mod)
 
         # adding additive state noise
@@ -162,9 +162,6 @@ class EKF:
         """Perform one EKF prediction step"""
         x_est_pred = self.dyn_mod.predict_x(x_est_prev, u)
         z_est_pred = self.sens_mod.predict_z(x_est_pred)
-        """Perform one EKF prediction step"""
-        x_est_pred = self.dyn_mod.predict_x(x_est_prev, u)
-        z_est_pred = self.sens_mod.predict_z(x_est_pred)
         return x_est_pred, z_est_pred
 
     def update(self, x_est_pred: gaussian, z_est_pred: gaussian, z) -> gaussian:
@@ -209,8 +206,8 @@ class MHE_acados:
         self.x_ests = np.empty((self.nx, 0))
 
         def _build_solver(self):
-            Q = self.dyn_mod.Q
-            R = self.sens_mod.R
+            Q = np.linalg.inv(self.dyn_mod.Q)
+            R = np.linalg.inv(self.sens_mod.R)
 
             ocp = AcadosOcp()
             ocp.model = self.model
@@ -227,8 +224,8 @@ class MHE_acados:
             ocp.cost.cost_type = 'NONLINEAR_LS'
             ocp.cost.cost_type_e = 'LINEAR_LS'
 
-            ocp.model.cost_y_expr_0 = ca.vertcat(self.model.x, self.model.x, self.model.x)
-            ocp.model.cost_y_expr = ca.vertcat(self.model.x, self.model.x)
+            ocp.model.cost_y_expr_0 = ca.vertcat(self.model.x, self.model.u, self.model.x)
+            ocp.model.cost_y_expr = ca.vertcat(self.model.x, self.model.u)
             ocp.cost.W_0 = block_diag(R, Q, Q0)
             ocp.cost.W = block_diag(R, Q)
             ocp.cost.yref_0 = np.zeros((ny_0,))
@@ -298,8 +295,10 @@ class MHE_acados:
 
         # update arrival cost (for next iteration)
             self.x0_bar = self.solver.get(1, "x")
+            self.w = self.solver.get(0, "u")
         else:
             x_est = y_meas
+            self.x0_bar = x_est
         self.P_prior = self.kalman_update(self.x0_bar.reshape(nx, 1), u)
         #Q0_new = np.linalg.inv(self.P_prior)
 

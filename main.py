@@ -175,12 +175,14 @@ def run_mpc_controller_sim(estimator: int):
         z_meas = add_noise(ball.y, ball.velocity)
         measurements = np.append(measurements, z_meas, axis=1)
 
-        if estimator == 2: # EKF
+        if estimator == 1: # no estimator, use ground truth
+            est_pos, est_vel = ball.y, ball.velocity
+        elif estimator == 2: # EKF
             est_pos, est_vel = run_ekf(ekf, z_meas, forces)
         elif estimator == 3: # MHE
             est_pos, est_vel = run_mhe(mhe, z_meas, forces)
-        else: # no estimator, use ground truth
-            est_pos, est_vel = ball.y, ball.velocity
+        elif estimator == 4:  # MHE acados
+            est_pos, est_vel = mhe.run_mhe(z_meas, forces)
         
         if config.MOVING_REFERENCE:
             if config.MOVING_REFERENCE_TYPE == 'sine':
@@ -283,14 +285,14 @@ def run_mpc_controller_stochastic_sim(estimator: int):
         z_meas = add_noise(ball.y, ball.velocity)
         measurements = np.append(measurements, z_meas, axis=1)
 
-        if estimator == 2: # EKF
+        if estimator == 1: # no estimator, use ground truth
+            est_pos, est_vel = ball.y, ball.velocity
+        elif estimator == 2: # EKF
             est_pos, est_vel = run_ekf(ekf, z_meas, forces)
         elif estimator == 3: # MHE
             est_pos, est_vel = run_mhe(mhe, z_meas, forces)
         elif estimator == 4:  # MHE acados
             est_pos, est_vel = mhe.run_mhe(z_meas, forces)
-        else: # no estimator, use ground truth
-            est_pos, est_vel = ball.y, ball.velocity
 
         if config.MOVING_REFERENCE:
             if config.MOVING_REFERENCE_TYPE == 'sine':
@@ -423,14 +425,14 @@ def run_mpc_controller_tube_sim(estimator: int):
         z_meas = add_noise(ball.y, ball.velocity)
         measurements = np.append(measurements, z_meas, axis=1)
 
-        if estimator == 2:  # EKF
+        if estimator == 1: # no estimator, use ground truth
+            est_pos, est_vel = ball.y, ball.velocity
+        elif estimator == 2: # EKF
             est_pos, est_vel = run_ekf(ekf, z_meas, forces)
-        elif estimator == 3:  # MHE
+        elif estimator == 3: # MHE
             est_pos, est_vel = run_mhe(mhe, z_meas, forces)
         elif estimator == 4:  # MHE acados
             est_pos, est_vel = mhe.run_mhe(z_meas, forces)
-        else:  # no estimator, use ground truth
-            est_pos, est_vel = ball.y, ball.velocity
 
         if config.MOVING_REFERENCE:
             if config.MOVING_REFERENCE_TYPE == 'sine':
