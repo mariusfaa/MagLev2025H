@@ -22,10 +22,10 @@ class gaussian:
 
 
 class dynamic_model:
-    def __init__(self, variances: np.ndarray):
+    def __init__(self, Q: np.ndarray):
         self.dt = config.TIME_STEP  # discretization time
-        self.nx = len(variances)  # number of states
-        self.Q = np.diag(variances)  # process noise covariance matrix
+        self.nx = Q.shape[0]  # number of states
+        self.Q = Q  # process noise covariance matrix
 
     def f(self, x: np.ndarray, u) -> np.ndarray:
         """x^(k+1) = f(x^k, u^k)"""
@@ -119,10 +119,10 @@ class dynamic_model:
 
 
 class sensor_model:
-    def __init__(self, variances):
+    def __init__(self, R: np.ndarray):
         self.dt = config.TIME_STEP  # discretization time
-        self.nz = len(variances)  # number of measurements
-        self.R = np.diag(variances)  # measurement noise covariance
+        self.nz = R.shape[0]  # number of measurements
+        self.R = R  # measurement noise covariance
 
     def h(self, x: np.ndarray) -> np.array:
         """z^k = h(x^k)"""
@@ -184,11 +184,12 @@ class EKF:
 # --- Moving Horizon Estimator ---
 
 class MHE_acados:
-    def __init__(self, dyn_mod: dynamic_model,
-                 sens_mod: sensor_model,
-                 M: int,
-                 Q0: np.ndarray,
-                 dt=config.TIME_STEP):
+    def __init__(
+            self, dyn_mod: dynamic_model,
+            sens_mod: sensor_model,
+            M: int,
+            Q0: np.ndarray,
+            dt=config.TIME_STEP):
 
         self.dt = dt       # discretization time
         self.M = M         # maximum horizon length
@@ -201,9 +202,15 @@ class MHE_acados:
 
         self.nx = self.model.x.rows()
         self.nu = self.model.u.rows()
+        self.nparam = self.model.p.rows()
 
-        # buffer
+        self.ny_0 = 3*self.nx   # h(x), w and arrival cost
+        self.ny = 2*self.nx     # h(x), w
+
+        # Buffers for states, measurements and inputs
         self.x_ests = np.empty((self.nx, 0))
+        self.y_buffer = np.empty((self.ny, 0))
+        self.u_buffer = []
 
         def _build_solver(self):
             Q = np.linalg.inv(self.dyn_mod.Q)
@@ -215,10 +222,6 @@ class MHE_acados:
             ocp.dims.N = self.M
             ocp.solver_options.tf = self.M * self.dt
 
-            ny_0 = 3*self.nx   # h(x), w and arrival cost
-            ny = 2*self.nx     # h(x), w
-            nparam = self.model.p.rows()
-
             # cost type nonlinear least squares
             ocp.cost.cost_type_0 = 'NONLINEAR_LS'
             ocp.cost.cost_type = 'NONLINEAR_LS'
@@ -228,10 +231,10 @@ class MHE_acados:
             ocp.model.cost_y_expr = ca.vertcat(self.model.x, self.model.u)
             ocp.cost.W_0 = block_diag(R, Q, Q0)
             ocp.cost.W = block_diag(R, Q)
-            ocp.cost.yref_0 = np.zeros((ny_0,))
-            ocp.cost.yref = np.zeros((ny,))
+            ocp.cost.yref_0 = np.zeros((self.ny_0,))
+            ocp.cost.yref = np.zeros((self.ny,))
             ocp.cost.yref_e = np.zeros(0)
-            ocp.parameter_values = np.zeros((nparam, ))
+            ocp.parameter_values = np.zeros((self.nparam, ))
 
             ocp.solver_options.qp_solver = 'FULL_CONDENSING_QPOASES'
             ocp.solver_options.hessian_approx = 'GAUSS_NEWTON'
@@ -260,16 +263,15 @@ class MHE_acados:
         return P_upd
     
 
-    def run_mhe(self, y_meas: np.ndarray, odometry):
+    def run_mhe(self, y_meas: np.ndarray, u):
         nx = self.nx
         nu = self.nu
         y_meas = y_meas.reshape(nx,)
 
-        if len(odometry) == 0:
+
+        if len(u) == 0:
             u = 0
             self.x0_bar = y_meas
-        else:
-            u = odometry[-1]
 
         # shift horizon and update references
         yref_0 = np.zeros(3*nx)
@@ -281,8 +283,8 @@ class MHE_acados:
         yref = np.zeros(2*nx)
         yref[:nx] = y_meas
         for j in range(1, self.M):
-            self.solver.set(j, "yref", yref)
-            self.solver.set(j, "p", u)
+            self.solver.set(j, "yref", yref[1])
+            self.solver.set(j, "p", self.u_buffer[-2:])
 
         # solve
         if u != 0:
@@ -301,6 +303,7 @@ class MHE_acados:
             self.x0_bar = x_est
         self.P_prior = self.kalman_update(self.x0_bar.reshape(nx, 1), u)
         #Q0_new = np.linalg.inv(self.P_prior)
+        self.solver.set_params_sparse
 
         self.x_ests = np.append(self.x_ests, x_est.reshape(nx, 1), axis=1)
         return x_est
@@ -461,27 +464,18 @@ def init_estimator(estimator: int):
     3: mhe\n
     4: mhe_acados
     """
+    R = np.diag([config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL])
+    Q = lambda v1, v2, dt: np.array([
+        [v1*v2, 0.5*(v1 + v2)*dt**2],
+        [0, v2*dt]
+        ])
+    Q0 = np.diag([0.1, 0.1])
     if estimator == 2:
-        return EKF(
-            dynamic_model(
-                np.array([config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL])),
-            sensor_model(([config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL]))
-        )
+        return EKF(dynamic_model(Q(config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL, config.TIME_STEP)), sensor_model(R))
     if estimator == 3:
-        return MHE(
-            dynamic_model(
-                np.array([config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL])),
-            sensor_model(([config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL])),
-            config.MHE_HORIZON
-        )
+        return MHE(dynamic_model(Q(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL, config.TIME_STEP)), sensor_model(R), config.MHE_HORIZON)
     if estimator == 4:
-        return MHE_acados(
-            dynamic_model(
-                np.array([config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL])),
-            sensor_model(([config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL])),
-            config.MHE_HORIZON,
-            np.diag([1, 1])
-        )
+        return MHE_acados(dynamic_model(Q(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL, config.TIME_STEP)), sensor_model(R), config.MHE_HORIZON, Q0)
 
 
 def run_ekf(ekf: EKF, z: np.ndarray, odometry: list):
