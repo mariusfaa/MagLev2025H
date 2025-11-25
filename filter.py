@@ -1,7 +1,7 @@
 import numpy as np
 import config
 from scipy.optimize import minimize
-from scipy.linalg import block_diag
+from scipy.linalg import block_diag, cholesky, solve_triangular
 from autograd import grad, jacobian
 import casadi as ca
 from acados_template import AcadosModel, AcadosOcpSolver, AcadosOcp, AcadosOcpOptions
@@ -13,7 +13,6 @@ class gaussian:
         self.cov = cov
 
     def mahalanobis_distance(self, x: np.ndarray) -> float:
-        """Normalized distance from mean"""
         """Normalized distance from mean"""
 
         err = x.reshape(-1, 1) - self.mean.reshape(-1, 1)
@@ -201,20 +200,26 @@ class MHE_acados:
         self.model = dyn_mod.acados_model()
 
         self.nx = self.model.x.rows()
-        self.nu = self.model.u.rows()
+        self.nu = self.model.p.rows()
+        self.nz = self.model.x.rows() # TODO change if measurement model changes
         self.nparam = self.model.p.rows()
 
-        self.ny_0 = 3*self.nx   # h(x), w and arrival cost
-        self.ny = 2*self.nx     # h(x), w
+        self.ny_0 = self.nz + 2*self.nx   # h(x), w and arrival cost
+        self.ny = self.nz + self.nx     # h(x), w
 
         # Buffers for states, measurements and inputs
         self.x_ests = np.empty((self.nx, 0))
-        self.y_buffer = np.empty((self.ny, 0))
-        self.u_buffer = []
+        self.w_buffer = np.empty((self.nx, 0)) # maybe useful
+        self.z_buffer = np.empty((self.nx, 0))
+        self.u_buffer = [0]
+
+        # initial states
+        self.x0_bar =  np.zeros((self.nx,))
+        self.w =  np.zeros((self.nx,))
 
         def _build_solver(self):
-            Q = np.linalg.inv(self.dyn_mod.Q)
-            R = np.linalg.inv(self.sens_mod.R)
+            W = np.linalg.inv(self.dyn_mod.Q)
+            V = np.linalg.inv(self.sens_mod.R)
 
             ocp = AcadosOcp()
             ocp.model = self.model
@@ -227,10 +232,10 @@ class MHE_acados:
             ocp.cost.cost_type = 'NONLINEAR_LS'
             ocp.cost.cost_type_e = 'LINEAR_LS'
 
-            ocp.model.cost_y_expr_0 = ca.vertcat(self.model.x, self.model.u, self.model.x)
-            ocp.model.cost_y_expr = ca.vertcat(self.model.x, self.model.u)
-            ocp.cost.W_0 = block_diag(R, Q, Q0)
-            ocp.cost.W = block_diag(R, Q)
+            ocp.model.cost_y_expr_0 = ca.vertcat(self.model.x, self.model.u, self.model.x) # TODO  change to z
+            ocp.model.cost_y_expr = ca.vertcat(self.model.x, self.model.u) # TODO change to z
+            ocp.cost.W_0 = block_diag(V, W, Q0)
+            ocp.cost.W = block_diag(V, W)
             ocp.cost.yref_0 = np.zeros((self.ny_0,))
             ocp.cost.yref = np.zeros((self.ny,))
             ocp.cost.yref_e = np.zeros(0)
@@ -263,28 +268,52 @@ class MHE_acados:
         return P_upd
     
 
-    def run_mhe(self, y_meas: np.ndarray, u):
+    def run_mhe(self, meas: np.ndarray, odometry: list):
         nx = self.nx
         nu = self.nu
-        y_meas = y_meas.reshape(nx,)
+        nz = self.nz
+        ny = self.ny
+
+        self.z_buffer = np.append(self.z_buffer, meas, axis=1)
+        meas = meas.reshape(nx,)
 
 
-        if len(u) == 0:
+        # Limit horizon length if not enough measurements yet
+        M = min(self.M, self.z_buffer.shape[1])
+
+        # Extract last M measurements
+        horizon_z = np.zeros((nz, M))
+        horizon_u = np.zeros((nu, M))
+        horizon_z[:, :M] = self.z_buffer[:, -M:]
+        horizon_u[:M] = self.u_buffer[-M:]
+
+        if len(odometry) == 0:
             u = 0
-            self.x0_bar = y_meas
+            self.x0_bar = meas
+        else:
+            u = odometry[-1]
+        self.u_buffer.append(u)
+
+
+        # sneaky cholesky to handle arrival cost without modifying W_0
+        L = cholesky(self.P_prior, lower=True) # TODO doesnt wrok :(
+        # P = L @ L.T
+        # x.T@P^-1@x = x.T@(L@L.T)^-1@x = (L^-1@x).T@I@L^-1@x
+        #self.x0_bar = solve_triangular(L, self.x0_bar, lower=True)  # L^-1@x = b -> L@b = x, solve for b
+
 
         # shift horizon and update references
-        yref_0 = np.zeros(3*nx)
-        yref_0[:nx] = y_meas
-        yref_0[2*nx:] = self.x0_bar#@np.linalg.inv(self.P_prior)  # arrival cost
+        yref_0 = np.zeros(self.ny_0)
+        yref_0[:nz] = horizon_z[:, 0]
+        yref_0[nz+nx:] = self.x0_bar
         self.solver.set(0, "yref", yref_0)
-        self.solver.set(0, "p", u)
+        self.solver.set(0, "p", horizon_u[:, 0])
 
-        yref = np.zeros(2*nx)
-        yref[:nx] = y_meas
-        for j in range(1, self.M):
-            self.solver.set(j, "yref", yref[1])
-            self.solver.set(j, "p", self.u_buffer[-2:])
+        yref = np.zeros(ny)
+        for j in range(1, M):
+            yref[:nz] = horizon_z[:, j]
+            self.solver.set(j, "yref", yref)
+            self.solver.set(j, "p", horizon_u[:, j])
 
         # solve
         if u != 0:
@@ -293,17 +322,16 @@ class MHE_acados:
                 print(f"MHE solver returned status {status}")
 
         # extract estimate
-            x_est = self.solver.get(self.M, "x")
+            x_est = self.solver.get(M, "x")
 
         # update arrival cost (for next iteration)
             self.x0_bar = self.solver.get(1, "x")
-            self.w = self.solver.get(0, "u")
+            self.w = self.solver.get(1, "u") # TODO no
+            #self.w_buffer = np.append(self.w_buffer, self.w.reshape(nx, 1), axis=1)
         else:
-            x_est = y_meas
+            x_est = meas
             self.x0_bar = x_est
-        self.P_prior = self.kalman_update(self.x0_bar.reshape(nx, 1), u)
-        #Q0_new = np.linalg.inv(self.P_prior)
-        self.solver.set_params_sparse
+        self.P_prior = self.kalman_update(self.x0_bar.reshape(nx, 1), u) # TODO replace with qr decomposition
 
         self.x_ests = np.append(self.x_ests, x_est.reshape(nx, 1), axis=1)
         return x_est
@@ -464,18 +492,23 @@ def init_estimator(estimator: int):
     3: mhe\n
     4: mhe_acados
     """
-    R = np.diag([config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL])
+    R = lambda v1, v2: np.diag([v1, v2])
     Q = lambda v1, v2, dt: np.array([
         [v1*v2, 0.5*(v1 + v2)*dt**2],
         [0, v2*dt]
         ])
-    Q0 = np.diag([0.1, 0.1])
+    Q0 = np.diag([1, 1])
     if estimator == 2:
-        return EKF(dynamic_model(Q(config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL, config.TIME_STEP)), sensor_model(R))
+        return EKF(dynamic_model(Q(config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL, config.TIME_STEP)),
+                   sensor_model(R(config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL)))
     if estimator == 3:
-        return MHE(dynamic_model(Q(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL, config.TIME_STEP)), sensor_model(R), config.MHE_HORIZON)
+        return MHE(dynamic_model(Q(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL, config.TIME_STEP)),
+                   sensor_model(R, config.MHE_VAR_MEAS_POS, config.MHE_VAR_MEAS_VEL),
+                   config.MHE_HORIZON)
     if estimator == 4:
-        return MHE_acados(dynamic_model(Q(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL, config.TIME_STEP)), sensor_model(R), config.MHE_HORIZON, Q0)
+        return MHE_acados(dynamic_model(Q(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL, config.TIME_STEP)),
+                          sensor_model(R(config.MHE_VAR_MEAS_POS, config.MHE_VAR_MEAS_VEL)),
+                          config.MHE_HORIZON, Q0)
 
 
 def run_ekf(ekf: EKF, z: np.ndarray, odometry: list):
