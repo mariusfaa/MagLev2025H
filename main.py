@@ -510,43 +510,51 @@ if __name__ == '__main__':
     print("4: Stochastic MPC controller")
     print("5: Tube MPC controller")
     choice = input("Enter choice (1, 2, 3, 4 or 5): ")
+    try:
+        if choice == '1':
+            run_p_controller_sim()
+        elif choice == '2':
+            run_ppo_controller_sim()
+        elif choice == '3':
+            print("Choose estimator type:")
+            print("1: none (use ground truth)")
+            print("2: Extended Kalman filter")
+            print("3: Moving horizon estimator")
+            print("4: Moving horizon estimator with acados")
+            estimator_choice = int(input("enter choice (1, 2, 3 or 4): "))
+            if estimator_choice in (1, 2, 3, 4):
+                run_mpc_controller_sim(estimator_choice)
+            else:
+                print("Invalid estimator choice. Exiting")
+        elif choice == '4':
+            print("Choose estimator type:")
+            print("1: none (use ground truth)")
+            print("2: Extended Kalman filter")
+            print("3: Moving horizon estimator")
+            print("4: Moving horizon estimator with acados")
+            estimator_choice = int(input("enter choice (1, 2, 3 or 4): "))
+            if estimator_choice in (1, 2, 3, 4):
+                run_mpc_controller_stochastic_sim(estimator_choice)
+            else:
+                print("Invalid estimator choice. Exiting")
+        elif choice == '5':
+            print("Choose estimator type:")
+            print("1: none (use ground truth)")
+            print("2: Extended Kalman filter")
+            print("3: Moving horizon estimator")
+            print("4: Moving horizon estimator with acados")
+            estimator_choice = int(input("enter choice (1, 2, 3 or 4): "))
+            if estimator_choice in (1, 2, 3, 4):
+                run_mpc_controller_tube_sim(estimator_choice)
+            else:
+                print("Invalid estimator choice. Exiting")
+        else:
+            print("Invalid choice. Exiting.")
+    finally: # profiler; uncomment to use
+            profiler.disable()
+            stats = pstats.Stats(profiler)
+            try:
+                stats.dump_stats(f'{filter_dict[estimator_choice]}_{controller_dict[int(choice)]}.prof')
+            except Exception as e:
+                print("error saving profiler stats:", e)
 
-    if choice == '1':
-        run_p_controller_sim()
-    elif choice == '2':
-        run_ppo_controller_sim()
-    elif choice == '3':
-        print("Choose estimator type:")
-        print("1: none (use ground truth)")
-        print("2: Extended Kalman filter")
-        print("3: Moving horizon estimator")
-        print("4: Moving horizon estimator with acados")
-        estimator_choice = int(input("enter choice (1, 2, 3 or 4): "))
-        if estimator_choice in (1, 2, 3, 4):
-            run_mpc_controller_sim(estimator_choice)
-        else:
-            print("Invalid estimator choice. Exiting")
-    elif choice == '4':
-        print("Choose estimator type:")
-        print("1: none (use ground truth)")
-        print("2: Extended Kalman filter")
-        print("3: Moving horizon estimator")
-        print("4: Moving horizon estimator with acados")
-        estimator_choice = int(input("enter choice (1, 2, 3 or 4): "))
-        if estimator_choice in (1, 2, 3, 4):
-            run_mpc_controller_stochastic_sim(estimator_choice)
-        else:
-            print("Invalid estimator choice. Exiting")
-    elif choice == '5':
-        print("Choose estimator type:")
-        print("1: none (use ground truth)")
-        print("2: Extended Kalman filter")
-        print("3: Moving horizon estimator")
-        print("4: Moving horizon estimator with acados")
-        estimator_choice = int(input("enter choice (1, 2, 3 or 4): "))
-        if estimator_choice in (1, 2, 3, 4):
-            run_mpc_controller_tube_sim(estimator_choice)
-        else:
-            print("Invalid estimator choice. Exiting")
-    else:
-        print("Invalid choice. Exiting.")
