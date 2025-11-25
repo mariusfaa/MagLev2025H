@@ -4,7 +4,7 @@ import config
 
 class MPCControllerStochastic:
     """A Model Predictive Controller (MPC) for the ball environment."""
-    def __init__(self, N=10, dt=config.TIME_STEP, num_samples=10, noise_std=5):
+    def __init__(self, N=config.STOCHASTIC_MPC_HORIZON, dt=config.TIME_STEP, num_samples=config.STOCHASTIC_MPC_SAMPLES, noise_std=config.STOCHASTIC_MPC_NOISE_STD):
         """Initializes the Stochastic MPC controller with Monte Carlo simulation."""
         self.N = N
         self.dt = dt
@@ -90,7 +90,7 @@ class MPCControllerStochastic:
         self.opti.set_initial(self.U, np.full((1, N), config.GRAVITY))  # Start with gravity compensation
         # Store last solution for warm starting
 
-    def get_action(self, current_height, current_velocity, target_height):
+    def get_action(self, current_height, current_velocity, target_height, return_trajectory=True):
         """Computes the optimal control action given the current state, using stochastic MPC."""
         self.opti.set_value(self.X0, [current_height, current_velocity])
         self.opti.set_value(self.target_height, target_height)
@@ -111,8 +111,10 @@ class MPCControllerStochastic:
             optimal_force = config.GRAVITY
             self.last_solution = None
             return optimal_force, None, None
-
-        return optimal_force, predicted_X_mean, predicted_U
+        if return_trajectory:
+            return optimal_force, predicted_X_mean, predicted_U
+        else:
+            return optimal_force, None, None
     
     def sizes(self):
         """Returns the sizes of the state and action spaces."""

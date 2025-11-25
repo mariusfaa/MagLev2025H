@@ -101,7 +101,7 @@ class MPCControllerTube:
         # return shape (1,2)
         return K
 
-    def get_action(self, current_height, current_velocity, target_height):
+    def get_action(self, current_height, current_velocity, target_height, return_trajectory=True):
         """Solve nominal MPC and apply tube control u = u_nom + K (x - x_nom)."""
         # set parameters
         self.opti.set_value(self.X0, [current_height, current_velocity])
@@ -122,7 +122,10 @@ class MPCControllerTube:
             u_applied = float(np.clip(u_applied, self.lbu, self.ubu))
             # store last solution
             self.last_solution = {'Xn': Xn_opt, 'Un': Un_opt}
-            return u_applied, Xn_opt, Un_opt
+            if return_trajectory:
+                return u_applied, Xn_opt, Un_opt
+            else:
+                return u_applied, None, None
         except RuntimeError as e:
             # fallback to gravity compensation
             print(f"Tube MPC solver failed: {e}")

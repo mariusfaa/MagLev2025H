@@ -68,6 +68,7 @@ STOCHASTIC_MPC_QV = 10
 STOCHASTIC_MPC_R = 1
 STOCHASTIC_MPC_TERMINAL = 10
 STOCHASTIC_MPC_DELTA_U_MAX = 15
+STOCHASTIC_MPC_NOISE_STD = 2.0  # Standard deviation of process noise for stochastic MPC
 
 # --- Tube MPC Parameters ---
 TUBE_MPC_HORIZON = 5

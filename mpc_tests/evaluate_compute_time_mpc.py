@@ -3,8 +3,6 @@ import sys
 import time
 import numpy as np
 
-
-
 # Add parent directory to path to import project modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
@@ -50,6 +48,17 @@ if __name__ == '__main__':
     
     # 1. Generate a consistent set of states for all controllers to be tested on
     states_to_test = generate_valid_states(NUM_CALCULATIONS)
+
+    # 2. Create controllers to be evaluated
+    std_mpc_controller = MPCController()
+    stoch_mpc_controller = MPCControllerStochastic()
+    tube_mpc_controller = MPCControllerTube()
+
+    controllers = {
+        "standard MPC controller": std_mpc_controller,
+        "stochastic MPC controller": stoch_mpc_controller,
+        "tube MPC controller": tube_mpc_controller
+    }
         
     results = {}
     print("\n--- Starting Computational Time Evaluation ---")
@@ -57,24 +66,23 @@ if __name__ == '__main__':
     # 3. Loop through each agent, load it, and time its predictions
     print(f"Evaluating: standard MPC controller")
     
-    mpc_controller = MPCController()
-    
-    start_time = time.perf_counter()
-    for obs in states_to_test:
-        _ = mpc_controller.get_action(obs[0], obs[1], obs[2])
-    end_time = time.perf_counter()
-    
-    total_time = end_time - start_time
-    avg_time_ms = (total_time / NUM_CALCULATIONS) * 1000  # Convert to milliseconds
-    results["standard MPC controller"] = avg_time_ms
-    print(f"  -> Average time: {avg_time_ms:.4f} ms per calculation.")
+    for controller_name, controller in controllers.items():
+        start_time = time.perf_counter()
+        for obs in states_to_test:
+            _ = controller.get_action(obs[0], obs[1], obs[2], return_trajectory=False)
+        end_time = time.perf_counter()
+        
+        total_time = end_time - start_time
+        avg_time_ms = (total_time / NUM_CALCULATIONS) * 1000  # Convert to milliseconds
+        results[controller_name] = avg_time_ms
+        print(f"  -> Average time: {avg_time_ms:.4f} ms per calculation.")
 
     # 4. Save the results to a file
     results_path = os.path.join(TEST_DIRECTORY, "compute_time_results.txt")
     with open(results_path, 'w') as f:
         f.write("Standard MPC Controller Computational Time Results\n")
         f.write("="*40 + "\n")
-        for agent_name, avg_time in sorted(results.items(), key=lambda item: item[1]):
-            f.write(f"{agent_name:<40}: {avg_time:.4f} ms\n")
+        for controller_name, avg_time in sorted(results.items(), key=lambda item: item[1]):
+            f.write(f"{controller_name:<40}: {avg_time:.4f} ms\n")
             
     print(f"\nResults saved to {results_path}")

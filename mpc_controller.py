@@ -65,8 +65,8 @@ class MPCController:
         ipopt_opts = {
             "ipopt.print_level": 0,
             "print_time": 0,
-            "ipopt.max_iter": 300,
-            "ipopt.tol": 1e-3,
+            # "ipopt.max_iter": 300,
+            "ipopt.tol": 1e-1,
             "ipopt.acceptable_tol": 1e-1
         }
         qpOASES_opts = {
@@ -74,6 +74,7 @@ class MPCController:
             "maxIter": 100,
             "epsRegularisation": 1e-8
         }
+        # self.opti.solver('qpOASES', qpOASES_opts)
         self.opti.solver('ipopt', ipopt_opts)
 
         # Initialize with reasonable guess
@@ -81,7 +82,7 @@ class MPCController:
         self.opti.set_initial(self.U, np.full((1, N), config.GRAVITY))  # Start with gravity compensation
         
         # Store last solution for warm starting
-        # self.last_solution = None
+        self.last_solution = None
 
     def get_action(self, current_height, current_velocity, target_height, return_trajectory=True):
         """Computes the optimal control action given the current state."""
