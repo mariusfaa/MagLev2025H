@@ -4,7 +4,7 @@ import config
 
 class MPCController:
     """A Model Predictive Controller (MPC) for the ball environment."""
-    def __init__(self, N=10, dt=config.TIME_STEP):
+    def __init__(self, N=config.STD_MPC_HORIZON, dt=config.TIME_STEP):
         """Initializes the MPC controller with a prediction horizon (N) and time step (dt)."""
         self.N = N
         self.dt = dt
@@ -21,7 +21,7 @@ class MPCController:
         # Dynamics constraints
         for k in range(N):
             x_next = self.X[0, k] + self.X[1, k] * dt
-            v_next = self.X[1, k] + (self.U[0, k] - config.GRAVITY) * dt
+            v_next = self.X[1, k] + (self.U[0, k]/config.BALL_MASS - config.GRAVITY) * dt
             self.opti.subject_to(self.X[0, k + 1] == x_next)
             self.opti.subject_to(self.X[1, k + 1] == v_next)
 
@@ -62,14 +62,19 @@ class MPCController:
         self.opti.minimize(cost)
 
         # Solver options
-        opts = {
+        ipopt_opts = {
             "ipopt.print_level": 0,
             "print_time": 0,
             "ipopt.max_iter": 300,
-            "ipopt.tol": 1e-6,
-            "ipopt.acceptable_tol": 1e-4
+            "ipopt.tol": 1e-3,
+            "ipopt.acceptable_tol": 1e-1
         }
-        self.opti.solver('ipopt', opts)
+        qpOASES_opts = {
+            "printLevel": "NONE",
+            "maxIter": 100,
+            "epsRegularisation": 1e-8
+        }
+        self.opti.solver('ipopt', ipopt_opts)
 
         # Initialize with reasonable guess
         self.opti.set_initial(self.X, np.zeros((2, N + 1)))
@@ -78,7 +83,7 @@ class MPCController:
         # Store last solution for warm starting
         # self.last_solution = None
 
-    def get_action(self, current_height, current_velocity, target_height):
+    def get_action(self, current_height, current_velocity, target_height, return_trajectory=True):
         """Computes the optimal control action given the current state."""
         self.opti.set_value(self.X0, [current_height, current_velocity])
         self.opti.set_value(self.target_height, target_height)
@@ -102,7 +107,10 @@ class MPCController:
             self.last_solution = None
             return optimal_force, None, None
 
-        return optimal_force, predicted_X, predicted_U
+        if return_trajectory:
+            return optimal_force, predicted_X, predicted_U
+        else:
+            return optimal_force, None, None
     
     def sizes(self):
         """Returns the sizes of the state and action spaces."""

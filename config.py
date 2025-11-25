@@ -24,6 +24,7 @@ MAX_EPISODE_STEPS = 2000
 
 # --- Environment Settings ---
 TARGET_HEIGHT = 300.0
+STARTING_HEIGHT = 100.0
 RANDOM_REFERENCE = True #True/False
 MOVING_REFERENCE = True #True/False
 MOVING_REFERENCE_TYPE = 'sigmoid'  # 'sine' or 'sigmoid'
