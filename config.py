@@ -19,12 +19,12 @@ GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 
 # --- RL Training Parameters ---
-PPO_TIMESTEPS = 20000000
+PPO_TIMESTEPS = 15000000
 MAX_EPISODE_STEPS = 2000
 
 # --- Environment Settings ---
 TARGET_HEIGHT = 300.0
-RANDOM_REFERENCE = False #True/False
+RANDOM_REFERENCE = True #True/False
 MOVING_REFERENCE = True #True/False
 MOVING_REFERENCE_TYPE = 'sigmoid'  # 'sine' or 'sigmoid'
 SINE_REFERENCE_PERIOD = 0.01

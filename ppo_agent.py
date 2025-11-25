@@ -5,19 +5,23 @@ from stable_baselines3.common.env_util import make_vec_env
 import multiprocessing
 from typing import Callable
 
-def create_ppo_agent(env_id, n_envs=None):
+def create_ppo_agent(env_id, n_envs=None, net_arch=None, activation_fn=nn.ReLU):
     """
     Creates and returns a PPO agent using a vectorized environment for parallel training.
     :param env_id: The class of the environment to instantiate.
     :param n_envs: The number of parallel environments to use. If None, uses the number of CPU cores.
+    :param net_arch: A list of integers specifying the number of units in each layer of the actor and critic networks. If None, defaults to [64, 64].
+    :param activation_fn: The activation function to use in the networks (e.g., nn.ReLU, nn.Tanh).
     """
-    # Define the network architecture and activation function that were in the custom policy.
-    # These are now passed as keyword arguments.
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"--- Using device: {device} ---")
+
+    if net_arch is None:
+        net_arch = [64, 64]
+
     policy_kwargs = dict(
-        net_arch=dict(pi=[64, 64], vf=[64, 64]),
-        activation_fn=nn.ReLU
+        net_arch=dict(pi=net_arch, vf=net_arch),
+        activation_fn=activation_fn
     )
     
     # Use multiple environments for parallel data collection
