@@ -16,6 +16,7 @@ from ppo_agent import create_ppo_agent, train_agent, load_agent
 from mpc_controller import MPCController
 from mpc_controller_stoch import MPCControllerStochastic
 from mpc_controller_tube import MPCControllerTube
+from mpc_controller_acados import MPCControllerACADOS
 from filter import *
 
 def run_p_controller_sim():
@@ -492,6 +493,168 @@ def run_mpc_controller_tube_sim(estimator: int):
         np.savez("mhe_data.npz", ground_truth=[positions, velocities],
                 measurements=measurements,
                 estimated_states=mhe.x_ests)
+        
+def run_mpc_controller_ACADOS_sim(estimator: int):
+    """Runs the simulation with the MPC Controller (Acados version)."""
+    pygame.init()
+    screen = pygame.display.set_mode((config.SCREEN_WIDTH, config.SCREEN_HEIGHT))
+    pygame.display.set_caption(f"Ball Simulator - Acados MPC (Estimator {estimator})")
+    clock = pygame.time.Clock()
+    font = pygame.font.Font(None, 30)
+
+    ball = Ball(config.SCREEN_WIDTH / 2, config.GROUND_HEIGHT + config.BALL_RADIUS)
+    
+    # Initialize Acados MPC
+    # Note: This may trigger a C-code compilation step on the first run.
+    mpc_controller_acados = MPCControllerACADOS()
+
+    # --- Initialize chosen estimator ---
+    ekf, mhe = None, None
+    if estimator == 2:
+        ekf = init_estimator(estimator)
+    elif estimator in (3, 4):
+        mhe = init_estimator(estimator)
+    
+    positions = []
+    velocities = []
+    forces = []
+    predicted_trajectories = []
+    predicted_controls = []
+
+    measurements = np.empty((2, 0))
+    current_step = 0
+    running = True
+
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+        current_step += 1
+
+        # --- State estimation ---
+        z_meas = add_noise(ball.y, ball.velocity)
+        measurements = np.append(measurements, z_meas, axis=1)
+
+        if estimator == 1: # No estimator, use ground truth
+            est_pos, est_vel = ball.y, ball.velocity
+        elif estimator == 2: # EKF
+            est_pos, est_vel = run_ekf(ekf, z_meas, forces)
+        elif estimator == 3: # MHE
+            est_pos, est_vel = run_mhe(mhe, z_meas, forces)
+        elif estimator == 4: # MHE acados (Assuming this class exists)
+            est_pos, est_vel = mhe.run_mhe(z_meas, forces)
+        else:
+            # Fallback
+            est_pos, est_vel = ball.y, ball.velocity
+
+        # --- Reference Generation ---
+        if config.MOVING_REFERENCE:
+            t = current_step * config.TIME_STEP
+            if config.MOVING_REFERENCE_TYPE == 'sine':
+                current_target_height = np.sin(t * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+            elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
+                L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
+                L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
+                sigmoid_term = 1 + np.exp(np.sin(config.SIGMOID_REFERENCE_PERIOD * (t - config.SIGMOID_REFERENCE_SHIFT)) * (-config.SIGMOID_REFERENCE_SLOPE))
+                current_target_height = (L1 / sigmoid_term) + L2
+            else:
+                current_target_height = config.TARGET_HEIGHT
+        else:
+            current_target_height = config.TARGET_HEIGHT
+
+        # --- MPC Control Step ---
+        # Returns: force (float), pred_X (numpy array), pred_U (numpy array)
+        force, pred_X, pred_U = mpc_controller_acados.get_action(est_pos, est_vel, current_target_height)
+        
+        # Ensure force is a standard float for PyGame/Physics
+        force = float(force)
+
+        # Apply control
+        ball.apply_force(force, disturbance=True)
+
+        # Logging
+        positions.append(ball.y)
+        velocities.append(ball.velocity)
+        forces.append(force)
+
+        # Store trajectories (convert numpy arrays to lists for serialization)
+        if pred_X is not None:
+            predicted_trajectories.append(pred_X.tolist())
+        else:
+            predicted_trajectories.append(None)
+
+        if pred_U is not None:
+            predicted_controls.append(pred_U.flatten().tolist())
+        else:
+            predicted_controls.append(None)
+
+        # --- Drawing ---
+        screen.fill(config.WHITE)
+        
+        # Draw Ground
+        pygame.draw.line(screen, config.BLACK, (0, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), (config.SCREEN_WIDTH, config.SCREEN_HEIGHT - config.GROUND_HEIGHT), 2)
+        
+        # Draw Target
+        target_y_screen = config.SCREEN_HEIGHT - current_target_height
+        pygame.draw.line(screen, config.GREEN, (0, target_y_screen), (config.SCREEN_WIDTH, target_y_screen), 2)
+        target_text = font.render('Target Height', True, config.GREEN)
+        screen.blit(target_text, (5, target_y_screen - 25))
+        
+        # Draw Ball
+        ball.draw(screen)
+
+        # --- Info Text ---
+        height_text = font.render(f'Height: {ball.y:.2f} m', True, config.BLACK)
+        vel_text = font.render(f'Velocity: {ball.velocity:.2f} m/s', True, config.BLACK)
+        force_text = font.render(f'Force: {force:.2f} N', True, config.BLACK)
+        
+        screen.blit(height_text, (10, 10))
+        screen.blit(vel_text, (10, 40))
+        screen.blit(force_text, (10, 70))
+
+        pygame.display.flip()
+        clock.tick(1 / config.TIME_STEP)
+
+    pygame.quit()
+
+    # --- Save Data ---
+    # Retrieve sizes from the Acados controller
+    # Note: ensure naming matches your analysis script expectations (qx vs qh)
+    qh, qv, lbu, ubu, r, delta_u_max = mpc_controller_acados.sizes()
+    ref = config.TARGET_HEIGHT
+    
+    print("Saving MPC data...")
+    save_dict = {
+        "positions": positions,
+        "forces": forces,
+        "trajectories": predicted_trajectories,
+        "controls": predicted_controls,
+        "N": config.STD_MPC_HORIZON,
+        "qh": qh, 
+        "qv": qv, 
+        "lbu": lbu, 
+        "ubu": ubu, 
+        "r": r, 
+        "ref": ref, 
+        "delta_u_max": delta_u_max
+    }
+    
+    np.savez("mpc_data.npz", **save_dict)
+
+    if estimator == 2 and ekf is not None:
+        np.savez("ekf_data.npz", 
+                ground_truth=[positions, velocities],
+                measurements=measurements,
+                estimated_states=ekf.state_ests,
+                estimated_measurements=ekf.meas_ests)
+                
+    if estimator in (3, 4) and mhe is not None:
+        # Assuming MHE object has x_ests attribute
+        est_states = getattr(mhe, 'x_ests', [])
+        np.savez("mhe_data.npz", 
+                ground_truth=[positions, velocities],
+                measurements=measurements,
+                estimated_states=est_states)
 
 
 if __name__ == '__main__':
@@ -509,7 +672,8 @@ if __name__ == '__main__':
     print("3: Standard MPC controller")
     print("4: Stochastic MPC controller")
     print("5: Tube MPC controller")
-    choice = input("Enter choice (1, 2, 3, 4 or 5): ")
+    print("6: Acados Standard MPC controller")
+    choice = input("Enter choice (1, 2, 3, 4, 5 or 6): ")
 
     if choice == '1':
         run_p_controller_sim()
@@ -546,6 +710,17 @@ if __name__ == '__main__':
         estimator_choice = int(input("enter choice (1, 2, 3 or 4): "))
         if estimator_choice in (1, 2, 3, 4):
             run_mpc_controller_tube_sim(estimator_choice)
+        else:
+            print("Invalid estimator choice. Exiting")
+    elif choice == '6':
+        print("Choose estimator type:")
+        print("1: none (use ground truth)")
+        print("2: Extended Kalman filter")
+        print("3: Moving horizon estimator")
+        print("4: Moving horizon estimator with acados")
+        estimator_choice = int(input("enter choice (1, 2, 3 or 4): "))
+        if estimator_choice in (1, 2, 3, 4):
+            run_mpc_controller_ACADOS_sim(estimator_choice)
         else:
             print("Invalid estimator choice. Exiting")
     else:

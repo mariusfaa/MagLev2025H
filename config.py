@@ -4,7 +4,7 @@ import numpy as np
 GRAVITY = 9.81
 BALL_MASS = 1.0
 TIME_STEP = 0.02  # 50 Hz simulation frequency
-FORCE_MAGNITUDE = 20.0  # Max force applied by controller
+FORCE_MAGNITUDE = 50.0  # Max force applied by controller
 
 # --- Pygame Visualization Parameters ---
 SCREEN_WIDTH = 400
@@ -26,7 +26,7 @@ MAX_EPISODE_STEPS = 2000
 TARGET_HEIGHT = 300.0
 STARTING_HEIGHT = 100.0
 RANDOM_REFERENCE = True #True/False
-MOVING_REFERENCE = True #True/False
+MOVING_REFERENCE = False #True/False
 MOVING_REFERENCE_TYPE = 'sigmoid'  # 'sine' or 'sigmoid'
 SINE_REFERENCE_PERIOD = 0.01
 SINE_REFERENCE_AMPLITUDE = 50
@@ -55,8 +55,8 @@ MHE_VAR_MEAS_VEL = 9
 # --- Standard MPC Parameters ---
 STD_MPC_HORIZON = 5
 STD_MPC_QH = 100
-STD_MPC_QV = 10
-STD_MPC_R = 1
+STD_MPC_QV = 4
+STD_MPC_R = 0.1
 STD_MPC_TERMINAL = 10
 STD_MPC_DELTA_U_MAX = 15
 

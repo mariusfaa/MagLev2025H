@@ -9,6 +9,7 @@ import config
 from mpc_controller import MPCController
 from mpc_controller_stoch import MPCControllerStochastic
 from mpc_controller_tube import MPCControllerTube
+from mpc_controller_acados import MPCControllerACADOS
 
 def generate_valid_states(num_states: int):
     """
@@ -53,11 +54,13 @@ if __name__ == '__main__':
     std_mpc_controller = MPCController()
     stoch_mpc_controller = MPCControllerStochastic()
     tube_mpc_controller = MPCControllerTube()
+    acados_mpc_controller = MPCControllerACADOS()
 
     controllers = {
         "standard MPC controller": std_mpc_controller,
         "stochastic MPC controller": stoch_mpc_controller,
-        "tube MPC controller": tube_mpc_controller
+        "tube MPC controller": tube_mpc_controller,
+        "acados MPC controller": acados_mpc_controller
     }
         
     results = {}
@@ -67,9 +70,16 @@ if __name__ == '__main__':
     print(f"Evaluating: standard MPC controller")
     
     for controller_name, controller in controllers.items():
+        print(f"Evaluating: {controller_name}")
         start_time = time.perf_counter()
+        
         for obs in states_to_test:
+            # IF checking Acados, reset the solver to handle the "teleportation"
+            if hasattr(controller, 'reset_solver'):
+                controller.reset_solver()
+                
             _ = controller.get_action(obs[0], obs[1], obs[2], return_trajectory=False)
+            
         end_time = time.perf_counter()
         
         total_time = end_time - start_time
