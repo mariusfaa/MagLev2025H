@@ -18,6 +18,8 @@ from mpc_controller_stoch import MPCControllerStochastic
 from mpc_controller_tube import MPCControllerTube
 from mpc_controller_acados import MPCControllerACADOS
 from filter import *
+from logger import SimulationLogger
+import datetime
 
 def run_p_controller_sim():
     """Runs the simulation with the P-Controller."""
@@ -164,6 +166,14 @@ def run_mpc_controller_sim(estimator: int):
     predicted_controls = []
 
     measurements = np.empty((2,0))
+    
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    logger = SimulationLogger(f"sim_results/MPC_Standard_{timestamp}")
+    
+    # Lagre mappe hvis den ikke finnes
+    if not os.path.exists("sim_results"):
+        os.makedirs("sim_results")
+    
     current_step = 0
     running = True
     while running:
@@ -171,6 +181,7 @@ def run_mpc_controller_sim(estimator: int):
             if event.type == pygame.QUIT:
                 running = False
         current_step += 1
+        t = current_step * config.TIME_STEP
 
         # --- State estimation ---
         z_meas = add_noise(ball.y, ball.velocity)
@@ -187,17 +198,28 @@ def run_mpc_controller_sim(estimator: int):
         
         if config.MOVING_REFERENCE:
             if config.MOVING_REFERENCE_TYPE == 'sine':
-                current_target_height = np.sin(config.TIME_STEP*current_step * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+                current_target_height = np.sin(t * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
             elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
                 L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
                 L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
-                current_target_height = L1 / (1 + np.exp(np.sin(config.SIGMOID_REFERENCE_PERIOD*(current_step*config.TIME_STEP - config.SIGMOID_REFERENCE_SHIFT))*(-config.SIGMOID_REFERENCE_SLOPE))) + L2
+                current_target_height = L1 / (1 + np.exp(np.sin(config.SIGMOID_REFERENCE_PERIOD*(t - config.SIGMOID_REFERENCE_SHIFT))*(-config.SIGMOID_REFERENCE_SLOPE))) + L2
         else:
             current_target_height = config.TARGET_HEIGHT
         force, pred_X, pred_U = mpc_controller.get_action(est_pos, est_vel, current_target_height)
         # apply first control
-        ball.apply_force(force, disturbance=True)
+        applied_noise = ball.apply_force(force, disturbance=True)
 
+        # --- ENDRING HER: Logg data ---
+        logger.log(
+            time=t,
+            position=ball.y,
+            velocity=ball.velocity,
+            target=current_target_height,
+            force=force,
+            noise=applied_noise,
+            estimated_pos=est_pos # Valgfritt
+        )
+        
         positions.append(ball.y)
         velocities.append(ball.velocity)
         forces.append(force)
@@ -248,6 +270,16 @@ def run_mpc_controller_sim(estimator: int):
         np.savez("mhe_data.npz", ground_truth=[positions, velocities],
                 measurements=measurements,
                 estimated_states=mhe.x_ests)
+        
+    # Lagre data og spesifikke parametere
+    logger.save(extra_params={
+        "Controller_Type": "Standard MPC",
+        "MPC_N": config.STD_MPC_HORIZON,
+        "Q_h": qx,
+        "Q_v": qu,
+        "R": r,
+        "Estimator_Type": estimator
+    })
         
 
 def run_mpc_controller_stochastic_sim(estimator: int):
@@ -502,7 +534,10 @@ def run_mpc_controller_ACADOS_sim(estimator: int):
     clock = pygame.time.Clock()
     font = pygame.font.Font(None, 30)
 
-    ball = Ball(config.SCREEN_WIDTH / 2, config.GROUND_HEIGHT + config.BALL_RADIUS)
+    ball = Ball(config.SCREEN_WIDTH / 2, config.STARTING_HEIGHT)
+    
+    if not os.path.exists("sim_results"):
+        os.makedirs("sim_results")
     
     # Initialize Acados MPC
     # Note: This may trigger a C-code compilation step on the first run.
@@ -522,15 +557,18 @@ def run_mpc_controller_ACADOS_sim(estimator: int):
     predicted_controls = []
 
     measurements = np.empty((2, 0))
+    
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    logger = SimulationLogger(f"sim_results/MPC_Standard_ACADOS_{timestamp}")
+    
     current_step = 0
     running = True
-
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
         current_step += 1
-
+        t = current_step * config.TIME_STEP
         # --- State estimation ---
         z_meas = add_noise(ball.y, ball.velocity)
         measurements = np.append(measurements, z_meas, axis=1)
@@ -549,16 +587,12 @@ def run_mpc_controller_ACADOS_sim(estimator: int):
 
         # --- Reference Generation ---
         if config.MOVING_REFERENCE:
-            t = current_step * config.TIME_STEP
             if config.MOVING_REFERENCE_TYPE == 'sine':
                 current_target_height = np.sin(t * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
             elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
                 L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
                 L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
-                sigmoid_term = 1 + np.exp(np.sin(config.SIGMOID_REFERENCE_PERIOD * (t - config.SIGMOID_REFERENCE_SHIFT)) * (-config.SIGMOID_REFERENCE_SLOPE))
-                current_target_height = (L1 / sigmoid_term) + L2
-            else:
-                current_target_height = config.TARGET_HEIGHT
+                current_target_height = L1 / (1 + np.exp(np.sin(config.SIGMOID_REFERENCE_PERIOD*(t - config.SIGMOID_REFERENCE_SHIFT))*(-config.SIGMOID_REFERENCE_SLOPE))) + L2
         else:
             current_target_height = config.TARGET_HEIGHT
 
@@ -570,7 +604,17 @@ def run_mpc_controller_ACADOS_sim(estimator: int):
         force = float(force)
 
         # Apply control
-        ball.apply_force(force, disturbance=True)
+        applied_noise = ball.apply_force(force, disturbance=True)
+        
+        logger.log(
+            time=t,
+            position=ball.y,
+            velocity=ball.velocity,
+            target=current_target_height,
+            force=force,
+            noise=applied_noise,
+            estimated_pos=est_pos # Valgfritt
+        )
 
         # Logging
         positions.append(ball.y)
@@ -655,6 +699,19 @@ def run_mpc_controller_ACADOS_sim(estimator: int):
                 ground_truth=[positions, velocities],
                 measurements=measurements,
                 estimated_states=est_states)
+    
+    # Lagre data og spesifikke parametere
+    logger.save(extra_params={
+        "Controller_Type": "Standard MPC ACADOS",
+        "MPC_N": config.STD_MPC_HORIZON,
+        "Q_h": config.STD_MPC_QH,
+        "Q_v": config.STD_MPC_QV,
+        "R": config.STD_MPC_R,
+        "Estimator_Type": estimator,
+        "Trajectory_Type": config.MOVING_REFERENCE_TYPE if config.MOVING_REFERENCE else config.TARGET_HEIGHT,
+        "Sigmoid_Slope": config.SIGMOID_REFERENCE_SLOPE if config.MOVING_REFERENCE_TYPE == 'sigmoid' else None,
+        "Sinusoidal_Period": config.SINE_REFERENCE_PERIOD if config.MOVING_REFERENCE_TYPE == 'sine' else None
+    })
 
 
 if __name__ == '__main__':

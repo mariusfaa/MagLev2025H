@@ -66,9 +66,7 @@ if __name__ == '__main__':
     results = {}
     print("\n--- Starting Computational Time Evaluation ---")
     
-    # 3. Loop through each agent, load it, and time its predictions
-    print(f"Evaluating: standard MPC controller")
-    
+    # 3. Loop through each agent, load it, and time its predictions    
     for controller_name, controller in controllers.items():
         print(f"Evaluating: {controller_name}")
         start_time = time.perf_counter()
@@ -88,11 +86,11 @@ if __name__ == '__main__':
         print(f"  -> Average time: {avg_time_ms:.4f} ms per calculation.")
 
     # 4. Save the results to a file
-    results_path = os.path.join(TEST_DIRECTORY, "compute_time_results.txt")
-    with open(results_path, 'w') as f:
-        f.write("Standard MPC Controller Computational Time Results\n")
-        f.write("="*40 + "\n")
-        for controller_name, avg_time in sorted(results.items(), key=lambda item: item[1]):
-            f.write(f"{controller_name:<40}: {avg_time:.4f} ms\n")
+    # results_path = os.path.join(TEST_DIRECTORY, "compute_time_results.txt")
+    # with open(results_path, 'w') as f:
+    #     f.write("MPC Controller Computational Time Results\n")
+    #     f.write("="*40 + "\n")
+    #     for controller_name, avg_time in sorted(results.items(), key=lambda item: item[1]):
+    #         f.write(f"{controller_name:<40}: {avg_time:.4f} ms\n")
             
-    print(f"\nResults saved to {results_path}")
+    # print(f"\nResults saved to {results_path}")

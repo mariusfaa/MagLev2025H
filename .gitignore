@@ -66,3 +66,6 @@ acados_*.json
 
 # Ignores shared libraries (if not already covered by *.so above)
 *.dylib
+
+# Ignore simulation results
+sim_results/

@@ -48,6 +48,8 @@ class Ball:
         if self.y < config.GROUND_HEIGHT + config.BALL_RADIUS:
             self.y = config.GROUND_HEIGHT + config.BALL_RADIUS
             self.velocity = 0
+    
+        return disturbance
 
     def draw(self, screen):
         """Draws the ball on the pygame screen."""
