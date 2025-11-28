@@ -69,3 +69,4 @@ acados_*.json
 
 # Ignore simulation results
 sim_results/
+benchmark_results/
