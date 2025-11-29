@@ -2,6 +2,7 @@ import pygame
 import config
 import numpy as np
 from noise import pnoise1
+import random
 
 class Ball:
     """Represents the ball and its physics in the simulation."""
@@ -19,9 +20,9 @@ class Ball:
         """
         
         if disturbance:
-            amp = 10.0
-            freq = 1.0
-            octaves = 4
+            amp = config.PERLIN_AMPLITUDE
+            freq = config.PERLIN_FREQUENCY
+            octaves = config.PERLIN_OCTAVES
             if isinstance(disturbance, (int, float)):
                 amp = float(disturbance)
             elif isinstance(disturbance, dict):
@@ -29,8 +30,9 @@ class Ball:
                 freq = float(disturbance.get('frequency', freq))
                 octaves = int(disturbance.get('octaves', octaves))
             self._noise_time += config.TIME_STEP * freq
+            base = random.randint(0, 100)
             # pnoise1 returns values in [-1, 1] (with octaves)
-            disturbance = pnoise1(self._noise_time, octaves=octaves) * amp
+            disturbance = pnoise1(self._noise_time, octaves=octaves, base=base) * amp
         else:
             disturbance = 0.0
         net_force = force - config.GRAVITY * config.BALL_MASS + disturbance
