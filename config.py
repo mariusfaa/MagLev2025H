@@ -4,7 +4,7 @@ import numpy as np
 GRAVITY = 9.81
 BALL_MASS = 1.0
 TIME_STEP = 0.02  # 50 Hz simulation frequency
-FORCE_MAGNITUDE = 20.0  # Max force applied by controller
+FORCE_MAGNITUDE = 50.0  # Max force applied by controller
 
 # --- Pygame Visualization Parameters ---
 SCREEN_WIDTH = 400
@@ -35,24 +35,25 @@ SIGMOID_REFERENCE_SLOPE = 10
 SIGMOID_REFERENCE_SHIFT = np.pi / (2 * SIGMOID_REFERENCE_PERIOD)
 
 # --- Measurement Noise ---
-STD_POS = 6
-STD_VEL = 3
+STD_POS = 20
+STD_VEL = 10
 
 # --- EKF Parameters ---
-EKF_VAR_PROC_POS = 6
-EKF_VAR_PROC_VEL = 12
-EKF_VAR_MEAS_POS = 36
-EKF_VAR_MEAS_VEL = 9
+EKF_VAR_PROC_POS = 10
+EKF_VAR_PROC_VEL = 9
+EKF_VAR_MEAS_POS = STD_POS**2
+EKF_VAR_MEAS_VEL = STD_VEL**2
 
 # --- MHE Parameters ---
-MHE_HORIZON = 2
-MHE_VAR_PROC_POS = 2
-MHE_VAR_PROC_VEL = 4
-MHE_VAR_MEAS_POS = 36
-MHE_VAR_MEAS_VEL = 9
+MHE_HORIZON = 5
+MHE_VAR_PROC_POS = 20
+MHE_VAR_PROC_VEL = 10
+MHE_VAR_MEAS_POS = STD_POS**2
+MHE_VAR_MEAS_VEL = STD_VEL**2
+MHE_SMALL_WEIGHT = np.eye(2)*1e-12
 
 # --- Standard MPC Parameters ---
-STD_MPC_HORIZON = 5
+STD_MPC_HORIZON = 10
 STD_MPC_QH = 100
 STD_MPC_QV = 10
 STD_MPC_R = 1

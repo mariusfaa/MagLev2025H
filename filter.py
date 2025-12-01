@@ -1,10 +1,11 @@
 import numpy as np
 import config
 from scipy.optimize import minimize
-from scipy.linalg import block_diag, cholesky, solve_triangular
+from scipy.linalg import block_diag
 from autograd import grad, jacobian
 import casadi as ca
 from acados_template import AcadosModel, AcadosOcpSolver, AcadosOcp, AcadosOcpOptions
+import time
 
 
 class gaussian:
@@ -26,9 +27,30 @@ class dynamic_model:
         self.nx = Q.shape[0]  # number of states
         self.Q = Q  # process noise covariance matrix
 
+
+    def F(self, x: np.ndarray, u) -> np.ndarray:
+        """Jacobian of dynamical function"""
+        jac = jacobian(lambda x, u: (self.f(x, u)).flatten(), 0)
+        F_c = jac(x, u).reshape(self.nx, self.nx)  # continous-time Jacobian
+        F_d = np.eye(self.nx) + F_c * self.dt      # discrete-time Jacobian
+        return F_d
+
     def f(self, x: np.ndarray, u) -> np.ndarray:
-        """x^(k+1) = f(x^k, u^k)"""
-        x.reshape(self.nx, 1)
+        """x_dot = f(x, u)"""
+        A = np.array([
+            [0, 1],
+            [0, 0]
+        ])
+        B = np.array([
+            [0, 0],
+            [1/config.BALL_MASS, -config.GRAVITY]
+        ])
+        u_mod = np.vstack([u, 1])  # adding gravity as artificial input
+        x_next = A@x + B@u_mod
+        return x_next
+    
+    def f_disc(self, x: np.ndarray, u) -> np.ndarray:
+        """x^(k+1) = F@x^k + B@u^k"""
         A = np.array([
             [1, self.dt],
             [0, 1]
@@ -37,8 +59,8 @@ class dynamic_model:
             [0, 0],
             [1/config.BALL_MASS, -config.GRAVITY]
         ])*self.dt
-        u_mod = np.vstack([u, 1])  # adding artificial gravity as artificial input
-        x_next = np.stack(A@x + B@u_mod)
+        u_mod = np.vstack([u, 1])  # adding gravity as artificial input
+        x_next = A@x + B@u_mod
         return x_next
     
     def acados_model(self) -> AcadosModel:
@@ -54,7 +76,6 @@ class dynamic_model:
 
         # control input
         u = ca.SX.sym('u', 1)
-        u_mod = ca.vertcat(u, 1)  # adding gravity as artificial input
 
         # state noise
         w_x1 = ca.SX.sym('w_x1')
@@ -66,35 +87,17 @@ class dynamic_model:
         x2_dot = ca.SX.sym('x2_dot')
         x_dot = ca.vertcat(x1_dot, x2_dot)
 
-        # continuous-time dynamics
-        Ac = ca.DM([
-            [0, 1],
-            [0, 0]
-        ])
-        Bc = ca.DM([
-            [0, 0],
-            [1/config.BALL_MASS, -config.GRAVITY]
-        ])
-        f_expl = ca.mtimes(Ac, x) + ca.mtimes(Bc, u_mod)
-
-        # discrete-time dynamics
-        A = ca.DM([
-            [1, self.dt],
-            [0, 1]
-        ])
-        B = ca.DM([
-            [0, 0],
-            [1/config.BALL_MASS, -config.GRAVITY]
-        ])*self.dt
-        f_disc = ca.mtimes(A, x) + ca.mtimes(B, u_mod)
+        # dynamical equations
+        f_expl = self.f(x,u)
+        f_disc = self.f_disc(x,u)
 
         # adding additive state noise
-        #f_expl += w
+        f_expl += w
         f_disc += w
 
         model.disc_dyn_expr = f_disc
-        #model.f_expl_expr = f_expl
-        #model.f_impl_expr = x_dot - f_expl
+        model.f_expl_expr = f_expl
+        model.f_impl_expr = x_dot - f_expl
         model.x = x
         model.xdot = x_dot
         model.u = w
@@ -102,16 +105,10 @@ class dynamic_model:
         
         return model
 
-    
-    
-    def F(self, x: np.ndarray, u) -> np.ndarray:
-        """Jacobian of dynamical function"""
-        jac = jacobian(lambda x, u: (self.f(x, u)).flatten(), 0)
-        return jac(x, u).reshape(self.nx, self.nx)
 
     def predict_x(self, x_prev: gaussian, u) -> gaussian:
         F = self.F(x_prev.mean, u)
-        x_pred_mean = self.f(x_prev.mean, u)
+        x_pred_mean = self.f_disc(x_prev.mean, u)
         x_pred_cov = F @ x_prev.cov @ F.T + self.Q
         x_pred = gaussian(x_pred_mean, x_pred_cov)
         return x_pred
@@ -125,14 +122,7 @@ class sensor_model:
 
     def h(self, x: np.ndarray) -> np.array:
         """z^k = h(x^k)"""
-        x.reshape(len(x), 1)
-        return np.eye(self.nz, len(x))@x
-    
-    def acados_model(self) -> AcadosModel:
-
-        model = AcadosModel()
-
-        model.z
+        return np.eye(self.nz)@x
 
     def H(self, x: np.ndarray) -> np.ndarray:
         """Jacobian of measurement function"""
@@ -187,29 +177,29 @@ class MHE_acados:
             self, dyn_mod: dynamic_model,
             sens_mod: sensor_model,
             M: int,
-            Q0: np.ndarray,
+            P0: np.ndarray,
             dt=config.TIME_STEP):
 
-        self.dt = dt       # discretization time
-        self.M = M         # maximum horizon length
-        self.P_prior = Q0  # prior covariance
+        self.dt = dt           # discretization time
+        self.max_horizon = M   # maximum horizon length
+        self.P_prior = P0      # prior covariance
 
         # extract model info
         self.dyn_mod = dyn_mod
         self.sens_mod = sens_mod
-        self.model = dyn_mod.acados_model()
+        self.dyn_mod_acados = dyn_mod.acados_model()
 
-        self.nx = self.model.x.rows()
-        self.nu = self.model.p.rows()
-        self.nz = self.model.x.rows() # TODO change if measurement model changes
-        self.nparam = self.model.p.rows()
+        self.nx = self.dyn_mod_acados.x.rows()
+        self.nu = self.dyn_mod_acados.p.rows()
+        self.nz = self.dyn_mod_acados.x.rows()
+        self.nparam = self.dyn_mod_acados.p.rows()
 
-        self.ny_0 = self.nz + 2*self.nx   # h(x), w and arrival cost
-        self.ny = self.nz + self.nx     # h(x), w
+        self.ny_0 = self.nz + 2*self.nx  # h(x), w and arrival cost
+        self.ny = self.nz + self.nx      # h(x), w
 
         # Buffers for states, measurements and inputs
         self.x_ests = np.empty((self.nx, 0))
-        self.w_buffer = np.empty((self.nx, 0)) # maybe useful
+        self.w_buffer = np.empty((self.nx, 0))
         self.z_buffer = np.empty((self.nx, 0))
         self.u_buffer = [0]
 
@@ -217,46 +207,71 @@ class MHE_acados:
         self.x0_bar =  np.zeros((self.nx,))
         self.w =  np.zeros((self.nx,))
 
+        # Weights used in cost function
+        self.Q_inv = np.linalg.inv(self.dyn_mod.Q)
+        self.R_inv = np.linalg.inv(self.sens_mod.R)
+        self.P0_inv = np.linalg.inv(self.P_prior)
+
+
         def _build_solver(self):
-            W = np.linalg.inv(self.dyn_mod.Q)
-            V = np.linalg.inv(self.sens_mod.R)
 
             ocp = AcadosOcp()
-            ocp.model = self.model
-
-            ocp.dims.N = self.M
-            ocp.solver_options.tf = self.M * self.dt
+            options = AcadosOcpOptions()
+            ocp.model = self.dyn_mod_acados
 
             # cost type nonlinear least squares
             ocp.cost.cost_type_0 = 'NONLINEAR_LS'
             ocp.cost.cost_type = 'NONLINEAR_LS'
             ocp.cost.cost_type_e = 'LINEAR_LS'
 
-            ocp.model.cost_y_expr_0 = ca.vertcat(self.model.x, self.model.u, self.model.x) # TODO  change to z
-            ocp.model.cost_y_expr = ca.vertcat(self.model.x, self.model.u) # TODO change to z
-            ocp.cost.W_0 = block_diag(V, W, Q0)
-            ocp.cost.W = block_diag(V, W)
+            # cost function
+            ocp.model.cost_y_expr_0 = ca.vertcat(self.sens_mod.h(self.dyn_mod_acados.x), self.dyn_mod_acados.u, self.dyn_mod_acados.x)
+            ocp.model.cost_y_expr = ca.vertcat(self.sens_mod.h(self.dyn_mod_acados.x), self.dyn_mod_acados.u)
+            ocp.cost.W_0 = block_diag(self.R_inv, self.Q_inv, self.P0_inv)
+            ocp.cost.W = block_diag(self.R_inv, self.Q_inv)
             ocp.cost.yref_0 = np.zeros((self.ny_0,))
             ocp.cost.yref = np.zeros((self.ny,))
-            ocp.cost.yref_e = np.zeros(0)
             ocp.parameter_values = np.zeros((self.nparam, ))
 
-            ocp.solver_options.qp_solver = 'FULL_CONDENSING_QPOASES'
-            ocp.solver_options.hessian_approx = 'GAUSS_NEWTON'
-            ocp.solver_options.integrator_type = 'DISCRETE'
-            ocp.solver_options.nlp_solver_type = 'SQP_RTI'
-            ocp.solver_options.nlp_solver_max_iter = 50
-            ocp.solver_options.cost_scaling = np.ones((self.M + 1,))
+            # constraints
+            #ocp.constraints.lbu = np.array([-np.inf, np.inf])
+            #ocp.constraints.ubu = np.array([np.inf, np.inf])
+            #ocp.constraints.Jbu = np.array([[1],[1]])
+            #ocp.constraints.lbx_0 = np.array([0, -1e5])
+            #ocp.constraints.ubx_0 = np.array([1e5, 1e5])
+            #ocp.constraints.Jbx_0 = np.array([
+            #    [1, 0],
+            #    [0, 1]
+            #    ])
+            #ocp.constraints.lbx = np.array([0, -1e5]) # non negative height
+            #ocp.constraints.ubx = np.array([1e5, 1e5])
+            #ocp.constraints.Jbx = np.array([
+            #    [1, 0],
+            #    [0, 1]
+            #    ])
+
+            # options
+            options.N_horizon = self.max_horizon
+            options.tf = self.max_horizon * self.dt
+            options.qp_solver = 'FULL_CONDENSING_QPOASES'
+            options.hessian_approx = 'GAUSS_NEWTON' # 'EXACT'
+            options.integrator_type =  'DISCRETE' #'ERK'
+            options.nlp_solver_type = 'SQP'
+            options.nlp_solver_max_iter = 100
+            #options.cost_scaling = np.ones((self.max_horizon + 1,))
+            options.nlp_solver_warm_start_first_qp = True
+            ocp.solver_options = options
 
             solver = AcadosOcpSolver(ocp, json_file='acados_mhe.json')
             return solver
         
         self.solver = _build_solver(self)
 
-    def kalman_update(self, x: np.ndarray, u) -> np.ndarray:
+    def kalman_update(self, x0_prev: np.ndarray, x0_curr: np.ndarray, meas_curr: np.ndarray, u_prev) -> np.ndarray:
         """Kalman based update to the prior covariance"""
-        H = self.sens_mod.H(x)
-        F = self.dyn_mod.F(x, u)
+    
+        H = self.sens_mod.H(x0_curr.reshape((self.nx, 1)))
+        F = self.dyn_mod.F(x0_prev.reshape((self.nx, 1)), u_prev)
         P = self.P_prior
         Q = self.dyn_mod.Q
         R = self.sens_mod.R
@@ -265,7 +280,13 @@ class MHE_acados:
         S = H @ P_pred @ H.T + R
         K = P_pred @ H.T @ np.linalg.inv(S)
         P_upd = (np.eye(self.nx) - K @ H) @ P_pred
-        return P_upd
+
+        x_est_pred = self.dyn_mod.f_disc(x0_prev.reshape((self.nx, 1)), u_prev)
+        z_est_pred = self.sens_mod.h(x_est_pred)
+        innovation = meas_curr.reshape((self.nz, 1)) - z_est_pred
+        x_upd = x_est_pred + K @ innovation
+
+        return x_upd, P_upd
     
 
     def run_mhe(self, meas: np.ndarray, odometry: list):
@@ -273,36 +294,40 @@ class MHE_acados:
         nu = self.nu
         nz = self.nz
         ny = self.ny
+        start = time.perf_counter()
 
+        if len(odometry) < self.max_horizon:
+            self.z_buffer = np.append(self.z_buffer, meas, axis=1)
+            self.x_ests = np.append(self.x_ests, meas, axis=1)
+            if len(odometry) == 0:
+                self.x0_bar = meas.reshape(nz,)
+            else:
+                u = odometry[-1]
+                self.u_buffer.append(u)
+            return meas
+        
         self.z_buffer = np.append(self.z_buffer, meas, axis=1)
-        meas = meas.reshape(nx,)
+        meas = meas.reshape(nz,)
+        x0_prev = self.x0_bar.copy()
 
-
-        # Limit horizon length if not enough measurements yet
-        M = min(self.M, self.z_buffer.shape[1])
-
-        # Extract last M measurements
-        horizon_z = np.zeros((nz, M))
-        horizon_u = np.zeros((nu, M))
-        horizon_z[:, :M] = self.z_buffer[:, -M:]
-        horizon_u[:M] = self.u_buffer[-M:]
-
-        if len(odometry) == 0:
-            u = 0
-            self.x0_bar = meas
-        else:
-            u = odometry[-1]
+        u = odometry[-1]
         self.u_buffer.append(u)
 
+        # Limit horizon length if not enough measurements yet
+        M = min(self.max_horizon, self.z_buffer.shape[1])
 
-        # sneaky cholesky to handle arrival cost without modifying W_0
-        L = cholesky(self.P_prior, lower=True) # TODO doesnt wrok :(
-        # P = L @ L.T
-        # x.T@P^-1@x = x.T@(L@L.T)^-1@x = (L^-1@x).T@I@L^-1@x
-        #self.x0_bar = solve_triangular(L, self.x0_bar, lower=True)  # L^-1@x = b -> L@b = x, solve for b
+        # Set horizon to current measurement and fill horizons M last entires with the M last measurements
+        horizon_z = np.tile(meas.reshape(nz,1), self.max_horizon)
+        horizon_u = np.zeros((self.nu, self.max_horizon))
+        horizon_z[:, :M] = self.z_buffer[:, -M:]
+        horizon_u[:, :M] = self.u_buffer[-M:]
 
+        # use if horizon is filled with temporary items that we want to remove
+        #if M < self.max_horizon:
+        #    self.solver.cost_set(M, "W", block_diag(self.R_inv, self.Q_inv), api='new')
 
         # shift horizon and update references
+
         yref_0 = np.zeros(self.ny_0)
         yref_0[:nz] = horizon_z[:, 0]
         yref_0[nz+nx:] = self.x0_bar
@@ -310,30 +335,40 @@ class MHE_acados:
         self.solver.set(0, "p", horizon_u[:, 0])
 
         yref = np.zeros(ny)
-        for j in range(1, M):
+        for j in range(1, self.max_horizon):
             yref[:nz] = horizon_z[:, j]
             self.solver.set(j, "yref", yref)
             self.solver.set(j, "p", horizon_u[:, j])
 
         # solve
-        if u != 0:
-            status = self.solver.solve()
-            if status != 0:
-                print(f"MHE solver returned status {status}")
+        status = self.solver.solve()
+        if status != 0:
+            print(f"MHE solver returned status {status}")
 
         # extract estimate
-            x_est = self.solver.get(M, "x")
+        x_est = self.solver.get(M, "x")
+        self.w = self.solver.get(M-1, "u")
+        # debug
+        #pac = []
+        #rac = []
+        #for i in range(0, self.max_horizon+1):
+        #    pac.append(self.solver.cost_get(i, 'W'))
+        #    rac.append(self.solver.get(i, 'x'))
 
         # update arrival cost (for next iteration)
-            self.x0_bar = self.solver.get(1, "x")
-            self.w = self.solver.get(1, "u") # TODO no
-            #self.w_buffer = np.append(self.w_buffer, self.w.reshape(nx, 1), axis=1)
-        else:
-            x_est = meas
-            self.x0_bar = x_est
-        self.P_prior = self.kalman_update(self.x0_bar.reshape(nx, 1), u) # TODO replace with qr decomposition
+        self.x0_bar = self.solver.get(1, "x")
+        a = self.solver.get(0, "x")
+        x_kalman, self.P_prior = self.kalman_update(x0_prev, self.x0_bar, self.z_buffer[:, -M], u)
+        self.x0_bar = x_kalman.reshape(nx,)
+        self.P0_inv = np.linalg.inv(self.P_prior)
+        self.solver.cost_set(0, "W", block_diag(self.R_inv, self.Q_inv, self.P0_inv), api='new')
 
+
+        # add solution to buffer
+        self.w_buffer = np.append(self.w_buffer, self.w.reshape(nx, 1), axis=1)
         self.x_ests = np.append(self.x_ests, x_est.reshape(nx, 1), axis=1)
+        #print(time.perf_counter() - start)
+  
         return x_est
 
 
@@ -497,7 +532,7 @@ def init_estimator(estimator: int):
         [v1*v2, 0.5*(v1 + v2)*dt**2],
         [0, v2*dt]
         ])
-    Q0 = np.diag([1, 1])
+    Q0 = np.diag([config.STD_POS**2, config.STD_VEL**2])
     if estimator == 2:
         return EKF(dynamic_model(Q(config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL, config.TIME_STEP)),
                    sensor_model(R(config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL)))
@@ -516,7 +551,7 @@ def run_ekf(ekf: EKF, z: np.ndarray, odometry: list):
     if len(odometry) == 0:
         # Initialize EKF with first measurement
         init_mean = np.vstack([z[0], z[1]])
-        init_cov = np.diag([1, 0.5])
+        init_cov = np.diag([config.STD_POS**2, config.STD_VEL**2])
         x_est = gaussian(init_mean, init_cov)
         x_est_pred, z_est_pred = ekf.predict(x_est, u)
     else:
