@@ -199,13 +199,11 @@ class MHE_acados:
 
         # Buffers for states, measurements and inputs
         self.x_ests = np.empty((self.nx, 0))
-        self.w_buffer = np.empty((self.nx, 0))
         self.z_buffer = np.empty((self.nx, 0))
         self.u_buffer = [0]
 
-        # initial states
+        # initial states; is currently overwritten before use
         self.x0_bar =  np.zeros((self.nx,))
-        self.w =  np.zeros((self.nx,))
 
         # Weights used in cost function
         self.Q_inv = np.linalg.inv(self.dyn_mod.Q)
@@ -229,26 +227,17 @@ class MHE_acados:
             ocp.model.cost_y_expr = ca.vertcat(self.sens_mod.h(self.dyn_mod_acados.x), self.dyn_mod_acados.u)
             ocp.cost.W_0 = block_diag(self.R_inv, self.Q_inv, self.P0_inv)
             ocp.cost.W = block_diag(self.R_inv, self.Q_inv)
+            if config.MHE_GROWING_HORIZON: # for stability reasons we dont want the optimizer to weigh temporary values if the horizon is growing
+                ocp.cost.W = block_diag(config.MHE_SMALL_WEIGHT, config.MHE_SMALL_WEIGHT)
             ocp.cost.yref_0 = np.zeros((self.ny_0,))
             ocp.cost.yref = np.zeros((self.ny,))
+            ocp.cost.yref_e = np.zeros((0, ))
             ocp.parameter_values = np.zeros((self.nparam, ))
 
-            # constraints
-            #ocp.constraints.lbu = np.array([-np.inf, np.inf])
-            #ocp.constraints.ubu = np.array([np.inf, np.inf])
-            #ocp.constraints.Jbu = np.array([[1],[1]])
-            #ocp.constraints.lbx_0 = np.array([0, -1e5])
-            #ocp.constraints.ubx_0 = np.array([1e5, 1e5])
-            #ocp.constraints.Jbx_0 = np.array([
-            #    [1, 0],
-            #    [0, 1]
-            #    ])
-            #ocp.constraints.lbx = np.array([0, -1e5]) # non negative height
-            #ocp.constraints.ubx = np.array([1e5, 1e5])
-            #ocp.constraints.Jbx = np.array([
-            #    [1, 0],
-            #    [0, 1]
-            #    ])
+            # constraints on intermediate states
+            ocp.constraints.lbx = np.array([0])    # height >= 0
+            ocp.constraints.ubx = np.array([1e5])  # practically unconstrained upper bound
+            ocp.constraints.idxbx = np.array([0])  # index to constrain
 
             # options
             options.N_horizon = self.max_horizon
@@ -256,9 +245,9 @@ class MHE_acados:
             options.qp_solver = 'FULL_CONDENSING_QPOASES'
             options.hessian_approx = 'GAUSS_NEWTON' # 'EXACT'
             options.integrator_type =  'DISCRETE' #'ERK'
-            options.nlp_solver_type = 'SQP'
+            options.nlp_solver_type = 'SQP_RTI'
             options.nlp_solver_max_iter = 100
-            #options.cost_scaling = np.ones((self.max_horizon + 1,))
+            options.cost_scaling = np.ones((self.max_horizon + 1,)) # no scaling
             options.nlp_solver_warm_start_first_qp = True
             ocp.solver_options = options
 
@@ -267,11 +256,15 @@ class MHE_acados:
         
         self.solver = _build_solver(self)
 
-    def kalman_update(self, x0_prev: np.ndarray, x0_curr: np.ndarray, meas_curr: np.ndarray, u_prev) -> np.ndarray:
+    def kalman_update(self, x0_prev: np.ndarray, meas: np.ndarray, u_prev) -> np.ndarray:
         """Kalman based update to the prior covariance"""
     
-        H = self.sens_mod.H(x0_curr.reshape((self.nx, 1)))
-        F = self.dyn_mod.F(x0_prev.reshape((self.nx, 1)), u_prev)
+        x_prev = x0_prev.reshape((self.nx, 1))
+        x_est_pred = self.dyn_mod.f_disc(x_prev, u_prev)
+        z_est_pred = self.sens_mod.h(x_est_pred)
+
+        H = self.sens_mod.H(x_est_pred)
+        F = self.dyn_mod.F(x_prev, u_prev)
         P = self.P_prior
         Q = self.dyn_mod.Q
         R = self.sens_mod.R
@@ -281,10 +274,8 @@ class MHE_acados:
         K = P_pred @ H.T @ np.linalg.inv(S)
         P_upd = (np.eye(self.nx) - K @ H) @ P_pred
 
-        x_est_pred = self.dyn_mod.f_disc(x0_prev.reshape((self.nx, 1)), u_prev)
-        z_est_pred = self.sens_mod.h(x_est_pred)
-        innovation = meas_curr.reshape((self.nz, 1)) - z_est_pred
-        x_upd = x_est_pred + K @ innovation
+        innovation = meas.reshape((self.nz, 1)) - z_est_pred
+        x_upd = (x_est_pred + K @ innovation).reshape(self.nx,)
 
         return x_upd, P_upd
     
@@ -294,22 +285,27 @@ class MHE_acados:
         nu = self.nu
         nz = self.nz
         ny = self.ny
-        start = time.perf_counter()
 
-        if len(odometry) < self.max_horizon:
-            self.z_buffer = np.append(self.z_buffer, meas, axis=1)
-            self.x_ests = np.append(self.x_ests, meas, axis=1)
-            if len(odometry) == 0:
+        self.z_buffer = np.append(self.z_buffer, meas, axis=1)
+
+        # Special behaviour for first run and if horizon is not full
+        if self.z_buffer.shape[1] < self.max_horizon:
+            # Set x0 at time = 0 (first run) and return set estimate as measurement
+            if self.z_buffer.shape[1] == 1:
                 self.x0_bar = meas.reshape(nz,)
+                self.x_ests = np.append(self.x_ests, meas, axis=1)
+                return meas
             else:
                 u = odometry[-1]
                 self.u_buffer.append(u)
-            return meas
-        
-        self.z_buffer = np.append(self.z_buffer, meas, axis=1)
-        meas = meas.reshape(nz,)
-        x0_prev = self.x0_bar.copy()
 
+            # If growing horizon is False we return the measurements until the horizon is filled
+            if not config.MHE_GROWING_HORIZON:
+                self.x_ests = np.append(self.x_ests, meas, axis=1)
+                return meas
+        
+
+        meas = meas.reshape(nz,)
         u = odometry[-1]
         self.u_buffer.append(u)
 
@@ -317,28 +313,30 @@ class MHE_acados:
         M = min(self.max_horizon, self.z_buffer.shape[1])
 
         # Set horizon to current measurement and fill horizons M last entires with the M last measurements
+        # if GROWING_HORIZON is False, then horizon_z is always entirely overwritten
         horizon_z = np.tile(meas.reshape(nz,1), self.max_horizon)
         horizon_u = np.zeros((self.nu, self.max_horizon))
         horizon_z[:, :M] = self.z_buffer[:, -M:]
         horizon_u[:, :M] = self.u_buffer[-M:]
 
         # use if horizon is filled with temporary items that we want to remove
-        #if M < self.max_horizon:
-        #    self.solver.cost_set(M, "W", block_diag(self.R_inv, self.Q_inv), api='new')
+        if config.MHE_GROWING_HORIZON:
+            if M < self.max_horizon:
+                self.solver.cost_set(M, 'W', block_diag(self.R_inv, self.Q_inv), api='new')
 
         # shift horizon and update references
 
         yref_0 = np.zeros(self.ny_0)
         yref_0[:nz] = horizon_z[:, 0]
-        yref_0[nz+nx:] = self.x0_bar
-        self.solver.set(0, "yref", yref_0)
-        self.solver.set(0, "p", horizon_u[:, 0])
+        yref_0[ny:] = self.x0_bar
+        self.solver.set(0, 'yref', yref_0)
+        self.solver.set(0, 'p', horizon_u[:, 0])
 
         yref = np.zeros(ny)
         for j in range(1, self.max_horizon):
             yref[:nz] = horizon_z[:, j]
-            self.solver.set(j, "yref", yref)
-            self.solver.set(j, "p", horizon_u[:, j])
+            self.solver.set(j, 'yref', yref)
+            self.solver.set(j, 'p', horizon_u[:, j])
 
         # solve
         status = self.solver.solve()
@@ -346,8 +344,8 @@ class MHE_acados:
             print(f"MHE solver returned status {status}")
 
         # extract estimate
-        x_est = self.solver.get(M, "x")
-        self.w = self.solver.get(M-1, "u")
+        x_est = self.solver.get(M, 'x')
+
         # debug
         #pac = []
         #rac = []
@@ -356,18 +354,12 @@ class MHE_acados:
         #    rac.append(self.solver.get(i, 'x'))
 
         # update arrival cost (for next iteration)
-        self.x0_bar = self.solver.get(1, "x")
-        a = self.solver.get(0, "x")
-        x_kalman, self.P_prior = self.kalman_update(x0_prev, self.x0_bar, self.z_buffer[:, -M], u)
-        self.x0_bar = x_kalman.reshape(nx,)
+        self.x0_bar, self.P_prior = self.kalman_update(self.x0_bar, horizon_z[:, 1], horizon_u[:, 0])
         self.P0_inv = np.linalg.inv(self.P_prior)
-        self.solver.cost_set(0, "W", block_diag(self.R_inv, self.Q_inv, self.P0_inv), api='new')
-
+        self.solver.cost_set(0, 'W', block_diag(self.R_inv, self.Q_inv, self.P0_inv), api='new')
 
         # add solution to buffer
-        self.w_buffer = np.append(self.w_buffer, self.w.reshape(nx, 1), axis=1)
         self.x_ests = np.append(self.x_ests, x_est.reshape(nx, 1), axis=1)
-        #print(time.perf_counter() - start)
   
         return x_est
 
@@ -521,7 +513,7 @@ def add_noise(pos, vel):
     return z_meas
 
 
-def init_estimator(estimator: int):
+def init_estimator(observer: int):
     """
     2: ekf\n
     3: mhe\n
@@ -533,14 +525,14 @@ def init_estimator(estimator: int):
         [0, v2*dt]
         ])
     Q0 = np.diag([config.STD_POS**2, config.STD_VEL**2])
-    if estimator == 2:
+    if observer == 2:
         return EKF(dynamic_model(Q(config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL, config.TIME_STEP)),
                    sensor_model(R(config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL)))
-    if estimator == 3:
+    if observer == 3:
         return MHE(dynamic_model(Q(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL, config.TIME_STEP)),
                    sensor_model(R, config.MHE_VAR_MEAS_POS, config.MHE_VAR_MEAS_VEL),
                    config.MHE_HORIZON)
-    if estimator == 4:
+    if observer == 4:
         return MHE_acados(dynamic_model(Q(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL, config.TIME_STEP)),
                           sensor_model(R(config.MHE_VAR_MEAS_POS, config.MHE_VAR_MEAS_VEL)),
                           config.MHE_HORIZON, Q0)
@@ -577,19 +569,28 @@ def run_mhe(mhe: MHE, z: np.ndarray, odometry: list):
 
     return x_est
 
+# unused for the moment
+def run_estimator(estimator, z: np.ndarray, odometry: list):
+    if estimator.__class__ == EKF:
+        est = run_ekf(estimator, z, odometry)
+    elif estimator.__class__ == MHE:
+        est = run_mhe(estimator, z, odometry)
+    elif estimator.__class__ == MHE_acados:
+        pos, vel = estimator.run_mhe(z, odometry)
+    return pos, vel
 
-filter_dict = {
-    1: "GT",
-    2: "EKF",
-    3: "MHE",
-    4: "MHE_acados"
-}
+# unused for the moment
+def save_filter_data(estimator, measurements, positions, velocities):
+    if estimator.__class__ == EKF:
+        np.savez("ekf_data.npz", ground_truth=[positions, velocities],
+                measurements=measurements,
+                estimated_states=estimator.state_ests,
+                estimated_measurements=estimator.meas_ests)
+    elif estimator.__class__ in (MHE, MHE_acados):
+        np.savez("mhe_data.npz", ground_truth=[positions, velocities],
+                measurements=measurements,
+                estimated_states=estimator.x_ests)
 
-
-controller_dict = {
-    1: "P",
-    2: "PPO",
-    3: "MPC",
-    4: "SMPC",
-    5: "TMPC"
-}
+# for testing
+if __name__ == '__main__':
+    import mymain
