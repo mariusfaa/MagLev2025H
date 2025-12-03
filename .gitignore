@@ -51,3 +51,23 @@ coverage.xml
 acados_example_mhe/
 c_generated_code/
 acados_mhe.json
+
+# Acados Generation
+# Ignores any directory starting with "c_generated_code" (e.g., c_generated_code_ball_mpc)
+c_generated_code*/
+
+# Ignores the compiled object files generated during the build
+*.o
+
+# Ignores specific Acados JSON descriptors (adjust if you have other JSON config files)
+# This matches ball_mpc.json, acados_mhe.json, etc.
+*_mpc.json
+acados_*.json
+
+# Ignores shared libraries (if not already covered by *.so above)
+*.dylib
+
+# Ignore simulation results
+sim_results/
+benchmark_results/
+noise_benchmark_results/
