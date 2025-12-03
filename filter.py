@@ -5,6 +5,7 @@ from scipy.linalg import block_diag
 from autograd import grad, jacobian
 import casadi as ca
 from acados_template import AcadosModel, AcadosOcpSolver, AcadosOcp, AcadosOcpOptions
+import time
 
 
 class gaussian:
@@ -14,7 +15,6 @@ class gaussian:
 
     def mahalanobis_distance(self, x: np.ndarray) -> float:
         """Normalized distance from mean"""
-        """Normalized distance from mean"""
 
         err = x.reshape(-1, 1) - self.mean.reshape(-1, 1)
         mahalanobis_distance = float(err.T @ np.linalg.solve(self.cov, err))
@@ -22,14 +22,35 @@ class gaussian:
 
 
 class dynamic_model:
-    def __init__(self, variances: np.ndarray):
+    def __init__(self, Q: np.ndarray):
         self.dt = config.TIME_STEP  # discretization time
-        self.nx = len(variances)  # number of states
-        self.Q = np.diag(variances)  # process noise covariance matrix
+        self.nx = Q.shape[0]  # number of states
+        self.Q = Q  # process noise covariance matrix
+
+
+    def F(self, x: np.ndarray, u) -> np.ndarray:
+        """Jacobian of dynamical function"""
+        jac = jacobian(lambda x, u: (self.f(x, u)).flatten(), 0)
+        F_c = jac(x, u).reshape(self.nx, self.nx)  # continous-time Jacobian
+        F_d = np.eye(self.nx) + F_c * self.dt      # discrete-time Jacobian
+        return F_d
 
     def f(self, x: np.ndarray, u) -> np.ndarray:
-        """x^(k+1) = f(x^k, u^k)"""
-        x.reshape(self.nx, 1)
+        """x_dot = f(x, u)"""
+        A = np.array([
+            [0, 1],
+            [0, 0]
+        ])
+        B = np.array([
+            [0, 0],
+            [1/config.BALL_MASS, -config.GRAVITY]
+        ])
+        u_mod = np.vstack([u, 1])  # adding gravity as artificial input
+        x_next = A@x + B@u_mod
+        return x_next
+    
+    def f_disc(self, x: np.ndarray, u) -> np.ndarray:
+        """x^(k+1) = F@x^k + B@u^k"""
         A = np.array([
             [1, self.dt],
             [0, 1]
@@ -38,8 +59,8 @@ class dynamic_model:
             [0, 0],
             [1/config.BALL_MASS, -config.GRAVITY]
         ])*self.dt
-        u_mod = np.vstack([u, 1])  # adding artificial gravity as artificial input
-        x_next = np.stack(A@x + B@u_mod)
+        u_mod = np.vstack([u, 1])  # adding gravity as artificial input
+        x_next = A@x + B@u_mod
         return x_next
     
     def acados_model(self) -> AcadosModel:
@@ -55,7 +76,6 @@ class dynamic_model:
 
         # control input
         u = ca.SX.sym('u', 1)
-        u_mod = ca.vertcat(u, 1)  # adding gravity as artificial input
 
         # state noise
         w_x1 = ca.SX.sym('w_x1')
@@ -67,35 +87,17 @@ class dynamic_model:
         x2_dot = ca.SX.sym('x2_dot')
         x_dot = ca.vertcat(x1_dot, x2_dot)
 
-        # continuous-time dynamics
-        Ac = ca.DM([
-            [0, 1],
-            [0, 0]
-        ])
-        Bc = ca.DM([
-            [0, 0],
-            [1/config.BALL_MASS, -config.GRAVITY]
-        ])
-        f_expl = ca.mtimes(Ac, x) + ca.mtimes(Bc, u_mod)
-
-        # discrete-time dynamics
-        A = ca.DM([
-            [1, self.dt],
-            [0, 1]
-        ])
-        B = ca.DM([
-            [0, 0],
-            [1/config.BALL_MASS, -config.GRAVITY]
-        ])*self.dt
-        f_disc = ca.mtimes(A, x) + ca.mtimes(B, u_mod)
+        # dynamical equations
+        f_expl = self.f(x,u)
+        f_disc = self.f_disc(x,u)
 
         # adding additive state noise
-        #f_expl += w
+        f_expl += w
         f_disc += w
 
         model.disc_dyn_expr = f_disc
-        #model.f_expl_expr = f_expl
-        #model.f_impl_expr = x_dot - f_expl
+        model.f_expl_expr = f_expl
+        model.f_impl_expr = x_dot - f_expl
         model.x = x
         model.xdot = x_dot
         model.u = w
@@ -103,37 +105,24 @@ class dynamic_model:
         
         return model
 
-    
-    
-    def F(self, x: np.ndarray, u) -> np.ndarray:
-        """Jacobian of dynamical function"""
-        jac = jacobian(lambda x, u: (self.f(x, u)).flatten(), 0)
-        return jac(x, u).reshape(self.nx, self.nx)
 
     def predict_x(self, x_prev: gaussian, u) -> gaussian:
         F = self.F(x_prev.mean, u)
-        x_pred_mean = self.f(x_prev.mean, u)
+        x_pred_mean = self.f_disc(x_prev.mean, u)
         x_pred_cov = F @ x_prev.cov @ F.T + self.Q
         x_pred = gaussian(x_pred_mean, x_pred_cov)
         return x_pred
 
 
 class sensor_model:
-    def __init__(self, variances):
+    def __init__(self, R: np.ndarray):
         self.dt = config.TIME_STEP  # discretization time
-        self.nz = len(variances)  # number of measurements
-        self.R = np.diag(variances)  # measurement noise covariance
+        self.nz = R.shape[0]  # number of measurements
+        self.R = R  # measurement noise covariance
 
     def h(self, x: np.ndarray) -> np.array:
         """z^k = h(x^k)"""
-        x.reshape(len(x), 1)
-        return np.eye(self.nz, len(x))@x
-    
-    def acados_model(self) -> AcadosModel:
-
-        model = AcadosModel()
-
-        model.z
+        return np.eye(self.nz)@x
 
     def H(self, x: np.ndarray) -> np.ndarray:
         """Jacobian of measurement function"""
@@ -184,71 +173,98 @@ class EKF:
 # --- Moving Horizon Estimator ---
 
 class MHE_acados:
-    def __init__(self, dyn_mod: dynamic_model,
-                 sens_mod: sensor_model,
-                 M: int,
-                 Q0: np.ndarray,
-                 dt=config.TIME_STEP):
+    def __init__(
+            self, dyn_mod: dynamic_model,
+            sens_mod: sensor_model,
+            M: int,
+            P0: np.ndarray,
+            dt=config.TIME_STEP):
 
-        self.dt = dt       # discretization time
-        self.M = M         # maximum horizon length
-        self.P_prior = Q0  # prior covariance
+        self.dt = dt           # discretization time
+        self.max_horizon = M   # maximum horizon length
+        self.P_prior = P0      # prior covariance
 
         # extract model info
         self.dyn_mod = dyn_mod
         self.sens_mod = sens_mod
-        self.model = dyn_mod.acados_model()
+        self.dyn_mod_acados = dyn_mod.acados_model()
 
-        self.nx = self.model.x.rows()
-        self.nu = self.model.u.rows()
+        self.nx = self.dyn_mod_acados.x.rows()
+        self.nu = self.dyn_mod_acados.p.rows()
+        self.nz = self.dyn_mod_acados.x.rows()
+        self.nparam = self.dyn_mod_acados.p.rows()
 
-        # buffer
+        self.ny_0 = self.nz + 2*self.nx  # h(x), w and arrival cost
+        self.ny = self.nz + self.nx      # h(x), w
+
+        # Buffers for states, measurements and inputs
         self.x_ests = np.empty((self.nx, 0))
+        self.z_buffer = np.empty((self.nx, 0))
+        self.u_buffer = [0]
+
+        # initial states; is currently overwritten before use
+        self.x0_bar =  np.zeros((self.nx,))
+
+        # Weights used in cost function
+        self.Q_inv = np.linalg.inv(self.dyn_mod.Q)
+        self.R_inv = np.linalg.inv(self.sens_mod.R)
+        self.P0_inv = np.linalg.inv(self.P_prior)
+
 
         def _build_solver(self):
-            Q = np.linalg.inv(self.dyn_mod.Q)
-            R = np.linalg.inv(self.sens_mod.R)
 
             ocp = AcadosOcp()
-            ocp.model = self.model
-
-            ocp.dims.N = self.M
-            ocp.solver_options.tf = self.M * self.dt
-
-            ny_0 = 3*self.nx   # h(x), w and arrival cost
-            ny = 2*self.nx     # h(x), w
-            nparam = self.model.p.rows()
+            options = AcadosOcpOptions()
+            ocp.model = self.dyn_mod_acados
 
             # cost type nonlinear least squares
             ocp.cost.cost_type_0 = 'NONLINEAR_LS'
             ocp.cost.cost_type = 'NONLINEAR_LS'
             ocp.cost.cost_type_e = 'LINEAR_LS'
 
-            ocp.model.cost_y_expr_0 = ca.vertcat(self.model.x, self.model.u, self.model.x)
-            ocp.model.cost_y_expr = ca.vertcat(self.model.x, self.model.u)
-            ocp.cost.W_0 = block_diag(R, Q, Q0)
-            ocp.cost.W = block_diag(R, Q)
-            ocp.cost.yref_0 = np.zeros((ny_0,))
-            ocp.cost.yref = np.zeros((ny,))
-            ocp.cost.yref_e = np.zeros(0)
-            ocp.parameter_values = np.zeros((nparam, ))
+            # cost function
+            ocp.model.cost_y_expr_0 = ca.vertcat(self.sens_mod.h(self.dyn_mod_acados.x), self.dyn_mod_acados.u, self.dyn_mod_acados.x)
+            ocp.model.cost_y_expr = ca.vertcat(self.sens_mod.h(self.dyn_mod_acados.x), self.dyn_mod_acados.u)
+            ocp.cost.W_0 = block_diag(self.R_inv, self.Q_inv, self.P0_inv)
+            ocp.cost.W = block_diag(self.R_inv, self.Q_inv)
+            if config.MHE_GROWING_HORIZON: # for stability reasons we dont want the optimizer to weigh temporary values if the horizon is growing
+                ocp.cost.W = block_diag(config.MHE_SMALL_WEIGHT, config.MHE_SMALL_WEIGHT)
+            ocp.cost.yref_0 = np.zeros((self.ny_0,))
+            ocp.cost.yref = np.zeros((self.ny,))
+            ocp.cost.yref_e = np.zeros((0, ))
+            ocp.parameter_values = np.zeros((self.nparam, ))
 
-            ocp.solver_options.qp_solver = 'FULL_CONDENSING_QPOASES'
-            ocp.solver_options.hessian_approx = 'GAUSS_NEWTON'
-            ocp.solver_options.integrator_type = 'DISCRETE'
-            ocp.solver_options.nlp_solver_type = 'SQP_RTI'
-            ocp.solver_options.nlp_solver_max_iter = 50
-            ocp.solver_options.cost_scaling = np.ones((self.M + 1,))
+            # constraints on intermediate states
+            ocp.constraints.lbx = np.array([0])    # height >= 0
+            ocp.constraints.ubx = np.array([1e5])  # practically unconstrained upper bound
+            ocp.constraints.idxbx = np.array([0])  # index to constrain
+
+            # options
+            options.N_horizon = self.max_horizon
+            options.tf = self.max_horizon * self.dt
+            options.qp_solver = 'FULL_CONDENSING_QPOASES'
+            options.hessian_approx = 'GAUSS_NEWTON' # 'EXACT'
+            options.integrator_type =  'DISCRETE' #'ERK'
+            options.nlp_solver_type = 'SQP_RTI'
+            options.nlp_solver_max_iter = 100
+            options.cost_scaling = np.ones((self.max_horizon + 1,)) # no scaling
+            options.nlp_solver_warm_start_first_qp = True
+            ocp.solver_options = options
 
             solver = AcadosOcpSolver(ocp, json_file='acados_mhe.json')
             return solver
         
         self.solver = _build_solver(self)
 
-    def kalman_update(self, x: np.ndarray, u) -> np.ndarray:
+    def kalman_update(self, x0_prev: np.ndarray, meas: np.ndarray, u_prev) -> np.ndarray:
         """Kalman based update to the prior covariance"""
-        H = self.sens_mod.H(x)
-        F = self.dyn_mod.F(x, u)
+    
+        x_prev = x0_prev.reshape((self.nx, 1))
+        x_est_pred = self.dyn_mod.f_disc(x_prev, u_prev)
+        z_est_pred = self.sens_mod.h(x_est_pred)
+
+        H = self.sens_mod.H(x_est_pred)
+        F = self.dyn_mod.F(x_prev, u_prev)
         P = self.P_prior
         Q = self.dyn_mod.Q
         R = self.sens_mod.R
@@ -257,52 +273,94 @@ class MHE_acados:
         S = H @ P_pred @ H.T + R
         K = P_pred @ H.T @ np.linalg.inv(S)
         P_upd = (np.eye(self.nx) - K @ H) @ P_pred
-        return P_upd
+
+        innovation = meas.reshape((self.nz, 1)) - z_est_pred
+        x_upd = (x_est_pred + K @ innovation).reshape(self.nx,)
+
+        return x_upd, P_upd
     
 
-    def run_mhe(self, y_meas: np.ndarray, odometry):
+    def run_mhe(self, meas: np.ndarray, odometry: list):
         nx = self.nx
         nu = self.nu
-        y_meas = y_meas.reshape(nx,)
+        nz = self.nz
+        ny = self.ny
 
-        if len(odometry) == 0:
-            u = 0
-            self.x0_bar = y_meas
-        else:
-            u = odometry[-1]
+        self.z_buffer = np.append(self.z_buffer, meas, axis=1)
+
+        # Special behaviour for first run and if horizon is not full
+        if self.z_buffer.shape[1] < self.max_horizon:
+            # Set x0 at time = 0 (first run) and return set estimate as measurement
+            if self.z_buffer.shape[1] == 1:
+                self.x0_bar = meas.reshape(nz,)
+                self.x_ests = np.append(self.x_ests, meas, axis=1)
+                return meas
+            else:
+                u = odometry[-1]
+                self.u_buffer.append(u)
+
+            # If growing horizon is False we return the measurements until the horizon is filled
+            if not config.MHE_GROWING_HORIZON:
+                self.x_ests = np.append(self.x_ests, meas, axis=1)
+                return meas
+        
+
+        meas = meas.reshape(nz,)
+        u = odometry[-1]
+        self.u_buffer.append(u)
+
+        # Limit horizon length if not enough measurements yet
+        M = min(self.max_horizon, self.z_buffer.shape[1])
+
+        # Set horizon to current measurement and fill horizons M last entires with the M last measurements
+        # if GROWING_HORIZON is False, then horizon_z is always entirely overwritten
+        horizon_z = np.tile(meas.reshape(nz,1), self.max_horizon)
+        horizon_u = np.zeros((self.nu, self.max_horizon))
+        horizon_z[:, :M] = self.z_buffer[:, -M:]
+        horizon_u[:, :M] = self.u_buffer[-M:]
+
+        # use if horizon is filled with temporary items that we want to remove
+        if config.MHE_GROWING_HORIZON:
+            if M < self.max_horizon:
+                self.solver.cost_set(M, 'W', block_diag(self.R_inv, self.Q_inv), api='new')
 
         # shift horizon and update references
-        yref_0 = np.zeros(3*nx)
-        yref_0[:nx] = y_meas
-        yref_0[2*nx:] = self.x0_bar#@np.linalg.inv(self.P_prior)  # arrival cost
-        self.solver.set(0, "yref", yref_0)
-        self.solver.set(0, "p", u)
 
-        yref = np.zeros(2*nx)
-        yref[:nx] = y_meas
-        for j in range(1, self.M):
-            self.solver.set(j, "yref", yref)
-            self.solver.set(j, "p", u)
+        yref_0 = np.zeros(self.ny_0)
+        yref_0[:nz] = horizon_z[:, 0]
+        yref_0[ny:] = self.x0_bar
+        self.solver.set(0, 'yref', yref_0)
+        self.solver.set(0, 'p', horizon_u[:, 0])
+
+        yref = np.zeros(ny)
+        for j in range(1, self.max_horizon):
+            yref[:nz] = horizon_z[:, j]
+            self.solver.set(j, 'yref', yref)
+            self.solver.set(j, 'p', horizon_u[:, j])
 
         # solve
-        if u != 0:
-            status = self.solver.solve()
-            if status != 0:
-                print(f"MHE solver returned status {status}")
+        status = self.solver.solve()
+        if status != 0:
+            print(f"MHE solver returned status {status}")
 
         # extract estimate
-            x_est = self.solver.get(self.M, "x")
+        x_est = self.solver.get(M, 'x')
+
+        # debug
+        #pac = []
+        #rac = []
+        #for i in range(0, self.max_horizon+1):
+        #    pac.append(self.solver.cost_get(i, 'W'))
+        #    rac.append(self.solver.get(i, 'x'))
 
         # update arrival cost (for next iteration)
-            self.x0_bar = self.solver.get(1, "x")
-            self.w = self.solver.get(0, "u")
-        else:
-            x_est = y_meas
-            self.x0_bar = x_est
-        self.P_prior = self.kalman_update(self.x0_bar.reshape(nx, 1), u)
-        #Q0_new = np.linalg.inv(self.P_prior)
+        self.x0_bar, self.P_prior = self.kalman_update(self.x0_bar, horizon_z[:, 1], horizon_u[:, 0])
+        self.P0_inv = np.linalg.inv(self.P_prior)
+        self.solver.cost_set(0, 'W', block_diag(self.R_inv, self.Q_inv, self.P0_inv), api='new')
 
+        # add solution to buffer
         self.x_ests = np.append(self.x_ests, x_est.reshape(nx, 1), axis=1)
+  
         return x_est
 
 
@@ -455,33 +513,29 @@ def add_noise(pos, vel):
     return z_meas
 
 
-def init_estimator(estimator: int):
+def init_estimator(observer: int):
     """
     2: ekf\n
     3: mhe\n
     4: mhe_acados
     """
-    if estimator == 2:
-        return EKF(
-            dynamic_model(
-                np.array([config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL])),
-            sensor_model(([config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL]))
-        )
-    if estimator == 3:
-        return MHE(
-            dynamic_model(
-                np.array([config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL])),
-            sensor_model(([config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL])),
-            config.MHE_HORIZON
-        )
-    if estimator == 4:
-        return MHE_acados(
-            dynamic_model(
-                np.array([config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL])),
-            sensor_model(([config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL])),
-            config.MHE_HORIZON,
-            np.diag([1, 1])
-        )
+    R = lambda v1, v2: np.diag([v1, v2])
+    Q = lambda v1, v2, dt: np.array([
+        [v1*v2, 0.5*(v1 + v2)*dt**2],
+        [0, v2*dt]
+        ])
+    Q0 = np.diag([config.STD_POS**2, config.STD_VEL**2])
+    if observer == 2:
+        return EKF(dynamic_model(Q(config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL, config.TIME_STEP)),
+                   sensor_model(R(config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL)))
+    if observer == 3:
+        return MHE(dynamic_model(Q(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL, config.TIME_STEP)),
+                   sensor_model(R, config.MHE_VAR_MEAS_POS, config.MHE_VAR_MEAS_VEL),
+                   config.MHE_HORIZON)
+    if observer == 4:
+        return MHE_acados(dynamic_model(Q(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL, config.TIME_STEP)),
+                          sensor_model(R(config.MHE_VAR_MEAS_POS, config.MHE_VAR_MEAS_VEL)),
+                          config.MHE_HORIZON, Q0)
 
 
 def run_ekf(ekf: EKF, z: np.ndarray, odometry: list):
@@ -489,7 +543,7 @@ def run_ekf(ekf: EKF, z: np.ndarray, odometry: list):
     if len(odometry) == 0:
         # Initialize EKF with first measurement
         init_mean = np.vstack([z[0], z[1]])
-        init_cov = np.diag([1, 0.5])
+        init_cov = np.diag([config.STD_POS**2, config.STD_VEL**2])
         x_est = gaussian(init_mean, init_cov)
         x_est_pred, z_est_pred = ekf.predict(x_est, u)
     else:
@@ -515,19 +569,28 @@ def run_mhe(mhe: MHE, z: np.ndarray, odometry: list):
 
     return x_est
 
+# unused for the moment
+def run_estimator(estimator, z: np.ndarray, odometry: list):
+    if estimator.__class__ == EKF:
+        est = run_ekf(estimator, z, odometry)
+    elif estimator.__class__ == MHE:
+        est = run_mhe(estimator, z, odometry)
+    elif estimator.__class__ == MHE_acados:
+        pos, vel = estimator.run_mhe(z, odometry)
+    return pos, vel
 
-filter_dict = {
-    1: "GT",
-    2: "EKF",
-    3: "MHE",
-    4: "MHE_acados"
-}
+# unused for the moment
+def save_filter_data(estimator, measurements, positions, velocities):
+    if estimator.__class__ == EKF:
+        np.savez("ekf_data.npz", ground_truth=[positions, velocities],
+                measurements=measurements,
+                estimated_states=estimator.state_ests,
+                estimated_measurements=estimator.meas_ests)
+    elif estimator.__class__ in (MHE, MHE_acados):
+        np.savez("mhe_data.npz", ground_truth=[positions, velocities],
+                measurements=measurements,
+                estimated_states=estimator.x_ests)
 
-
-controller_dict = {
-    1: "P",
-    2: "PPO",
-    3: "MPC",
-    4: "SMPC",
-    5: "TMPC"
-}
+# for testing
+if __name__ == '__main__':
+    import mymain
