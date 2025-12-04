@@ -13,6 +13,8 @@ from mpc_controller import MPCController
 from mpc_controller_stoch import MPCControllerStochastic
 from mpc_controller_tube import MPCControllerTube
 from mpc_controller_acados import MPCControllerACADOS
+from mpc_controller_stoch_acados import MPCControllerStochasticAcados
+from mpc_controller_tube_acados import MPCControllerTubeAcados
 
 # Try to import PPO, but continue if not available/trained
 try:
@@ -86,7 +88,7 @@ def run_simulation(controller, controller_name, octave, run_id):
         #     # PController expects: (y, target, vel)
         #     force = controller.get_action(ball.y, target, ball.velocity)
             
-        if controller_name == "MPC" or controller_name == "MPC_Stochastic" or controller_name == "MPC_Tube" or controller_name == "MPC_Acados":
+        if controller_name == "MPC" or controller_name == "MPC_Stochastic" or controller_name == "MPC_Tube" or controller_name == "MPC_Acados" or controller_name == "MPC_Stochastic_Acados" or controller_name == "MPC_Tube_Acados":
             # MPC expects: (y, vel, target)
             force, _, _ = controller.get_action(ball.y, ball.velocity, target, return_trajectory=False)
             
@@ -147,6 +149,8 @@ def main():
     controllers["MPC_Stochastic"] = MPCControllerStochastic()
     controllers["MPC_Tube"] = MPCControllerTube()
     controllers["MPC_Acados"] = MPCControllerACADOS()
+    controllers["MPC_Stochastic_Acados"] = MPCControllerStochasticAcados()
+    controllers["MPC_Tube_Acados"] = MPCControllerTubeAcados()
     
     # if PPO_AVAILABLE and os.path.exists("ppo_ball_controller.zip"):
     #     print("Initializing PPO Agent...")
