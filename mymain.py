@@ -423,8 +423,8 @@ def run_mpc_controller_ACADOS_sim(estimator, test_type, ref_type='constant', fre
         velocities.append(ball.velocity)
         forces.append(force)
         disturbances.append(noise_val)
-        error_pos.append(ball.y-est_pos)
-        error_vel.append(ball.velocity-est_vel)
+        error_pos.append(float(ball.y-est_pos))
+        error_vel.append(float(ball.velocity-est_vel))
 
         # Apply control and states
         ball.apply_force(force + noise_val)
@@ -724,16 +724,8 @@ def run_benchmark():
             run_mpc_controller_ACADOS_sim(est, 'increasing', horizon=100, increasing=True, )
             
 
-
-
-
-#TODO full plots in appendix. interesting plots in results with rmse. instantaneous error plots? list table of rmse values for easy comparison in results. only show runtime when comparing horizon length
-
-# show with erk and discrete for short and long horizon
-# model error plots
 if __name__ == '__main__':
     run_benchmark()
-
 
 if __name__ == 'mymain':
     est = 'mhe_acados'
