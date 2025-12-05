@@ -58,9 +58,9 @@ class MPCControllerStochastic:
             # Dynamics constraints for this sample
             for k in range(N):
                 # Additive process noise to both height and velocity
-                x_next = X[0, k] + X[1, k] * dt + noise[0, k]
-                v_next = X[1, k] + (self.U[0, k] - config.GRAVITY) * dt + noise[1, k]
-                self.opti.subject_to(X[0, k + 1] == x_next)
+                h_next = X[0, k] + X[1, k] * dt + noise[0, k]
+                v_next = X[1, k] + (self.U[0, k]/config.BALL_MASS - config.GRAVITY) * dt + noise[1, k]
+                self.opti.subject_to(X[0, k + 1] == h_next)
                 self.opti.subject_to(X[1, k + 1] == v_next)
             # Cost for this sample
             for k in range(N):

@@ -20,9 +20,9 @@ class MPCController:
 
         # Dynamics constraints
         for k in range(N):
-            x_next = self.X[0, k] + self.X[1, k] * dt
+            h_next = self.X[0, k] + self.X[1, k] * dt
             v_next = self.X[1, k] + (self.U[0, k]/config.BALL_MASS - config.GRAVITY) * dt
-            self.opti.subject_to(self.X[0, k + 1] == x_next)
+            self.opti.subject_to(self.X[0, k + 1] == h_next)
             self.opti.subject_to(self.X[1, k + 1] == v_next)
 
         # Initial condition constraint
@@ -68,11 +68,6 @@ class MPCController:
             # "ipopt.max_iter": 300,
             "ipopt.tol": 1e-1,
             "ipopt.acceptable_tol": 1e-1
-        }
-        qpOASES_opts = {
-            "printLevel": "NONE",
-            "maxIter": 100,
-            "epsRegularisation": 1e-8
         }
         # self.opti.solver('qpOASES', qpOASES_opts)
         self.opti.solver('ipopt', ipopt_opts)

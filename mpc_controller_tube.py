@@ -8,7 +8,7 @@ class MPCControllerTube:
     Usage: create instance and call get_action(current_height, current_velocity).
     Returns: applied_force, predicted_nominal_X, predicted_nominal_U
     """
-    def __init__(self, N=config.STD_MPC_HORIZON, dt=config.TIME_STEP):
+    def __init__(self, N=config.TUBE_MPC_HORIZON, dt=config.TIME_STEP):
         self.N = N
         self.dt = dt
         self.opti = Opti()
@@ -29,9 +29,9 @@ class MPCControllerTube:
 
         # Dynamics constraints for nominal trajectory
         for k in range(N):
-            x_next = self.Xn[0, k] + self.Xn[1, k] * dt
-            v_next = self.Xn[1, k] + (self.Un[0, k] - config.GRAVITY) * dt
-            self.opti.subject_to(self.Xn[0, k + 1] == x_next)
+            h_next = self.Xn[0, k] + self.Xn[1, k] * dt
+            v_next = self.Xn[1, k] + (self.Un[0, k]/config.BALL_MASS - config.GRAVITY) * dt
+            self.opti.subject_to(self.Xn[0, k + 1] == h_next)
             self.opti.subject_to(self.Xn[1, k + 1] == v_next)
 
         # Initial condition for nominal trajectory set to parameter
@@ -45,7 +45,7 @@ class MPCControllerTube:
         self.opti.subject_to(self.opti.bounded(self.lbu + self.u_tightening, self.Un, self.ubu - self.u_tightening))
 
         # Optional delta-u constraint on nominal
-        self.delta_u_max = config.STD_MPC_DELTA_U_MAX
+        self.delta_u_max = config.TUBE_MPC_DELTA_U_MAX
         for k in range(1, N):
             delta_u = self.Un[0, k] - self.Un[0, k-1]
             self.opti.subject_to(self.opti.bounded(-self.delta_u_max, delta_u, self.delta_u_max))
@@ -55,9 +55,9 @@ class MPCControllerTube:
         self.opti.subject_to(self.Xn[0, :] >= 0 + x_tightening)
 
         # Cost (nominal)
-        qh = config.STD_MPC_QH
-        qv = config.STD_MPC_QV
-        r = config.STD_MPC_R
+        qh = config.TUBE_MPC_QH
+        qv = config.TUBE_MPC_QV
+        r = config.TUBE_MPC_R
         Q = np.diag([qh, qv])
         R = np.diag([r])
         cost = 0
@@ -65,7 +65,7 @@ class MPCControllerTube:
             state_err = self.Xn[:, k] - vertcat(self.target_height, 0)
             cost += mtimes([state_err.T, Q, state_err]) + mtimes([self.Un[:, k].T, R, self.Un[:, k]])
         terminal_err = self.Xn[:, N] - vertcat(self.target_height, 0)
-        Q_terminal = config.STD_MPC_TERMINAL * Q
+        Q_terminal = config.TUBE_MPC_TERMINAL * Q
         cost += mtimes([terminal_err.T, Q_terminal, terminal_err])
         self.opti.minimize(cost)
 
@@ -84,7 +84,7 @@ class MPCControllerTube:
         self.opti.set_initial(self.Un, np.full((1, N), config.GRAVITY))
 
         # Precompute LQR feedback K for the linearized model (infinite horizon approx)
-        self.K = self._compute_lqr_gain(A, B, Q * 0.1, R)  # scale Q for LQR design (tunable)
+        self.K = self._compute_lqr_gain(A, B, Q * config.TUBE_MPC_LQR_SCALE, R)
 
     def _compute_lqr_gain(self, A: np.ndarray, B: np.ndarray, Q: np.ndarray, R: np.ndarray, max_iters=500, eps=1e-8):
         """
