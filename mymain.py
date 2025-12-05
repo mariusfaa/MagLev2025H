@@ -346,7 +346,7 @@ def run_mpc_controller_tube_sim(estimator: int):
                 measurements=measurements,
                 estimated_states=mhe.x_ests)
         
-def run_mpc_controller_ACADOS_sim(estimator, test_type, ref_type='constant', freq=config.SINE_REFERENCE_PERIOD, slope=config.SIGMOID_REFERENCE_SLOPE, octave=config.PERLIN_OCTAVES, horizon=config.MHE_HORIZON, increasing=False, erk=False):
+def run_mpc_controller_ACADOS_sim(estimator, test_type, ref_type='constant', freq=config.SINE_REFERENCE_PERIOD, slope=config.SIGMOID_REFERENCE_SLOPE, octave=config.PERLIN_OCTAVES, horizon=config.MHE_HORIZON, increasing=config.MHE_INCREASING_HORIZON, erk=config.MHE_INTEGRATOR=='ERK'):
     """Runs the simulation with the MPC Controller (Acados version)."""
 
     ball = Ball(config.SCREEN_WIDTH / 2, config.STARTING_HEIGHT)
@@ -718,7 +718,7 @@ def run_benchmark():
             config.MHE_INTEGRATOR='ERK'
             run_mpc_controller_ACADOS_sim(est, 'increasing', erk=True)
             run_mpc_controller_ACADOS_sim(est, 'increasing', horizon=100, erk=True)
-            config.MHE_GROWING_HORIZON = True
+            config.MHE_INCREASING_HORIZON = True
             run_mpc_controller_ACADOS_sim(est, 'increasing', horizon=100, increasing=True, erk=True)
             config.MHE_INTEGRATOR='DISCRETE'
             run_mpc_controller_ACADOS_sim(est, 'increasing', horizon=100, increasing=True, )
