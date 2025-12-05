@@ -1,37 +1,64 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 import scipy
+from statsmodels.graphics.tsaplots import plot_acf
 
 
-data = np.load("mhe_data.npz", allow_pickle=True)
-ground_truth = data["ground_truth"]
-estimated_states = data["estimated_states"]
-measurements = data["measurements"]
-pos_gt = ground_truth[0]
-vel_gt = ground_truth[1]
-pos_meas = measurements[0]
-vel_meas = measurements[1]
 
-pos_est = estimated_states[0]
-vel_est = estimated_states[1]
+avg_runtime = lambda x: sum(x)/float(len(x))
+
+
+data = pd.read_csv("filter_results/erk/mhe_refconstant_freq1_slope5_octave4_horizon100.csv")
+runtimes = data["runtimes"].values
+runtimes_kalman = data["runtimes_kalman"].values
+
+avg_total_runtime = avg_runtime(runtimes)
+avg_kalman_runtime = avg_runtime(runtimes_kalman)
+avg_opt_runtime = avg_total_runtime - avg_kalman_runtime
+
+print(f"Average runtime: {avg_total_runtime}")
+print(f"Average runtime kalman: {avg_kalman_runtime}")
+print(f"Average optimizer runtime: {avg_opt_runtime}")
+
+pos_gt = data["pos_gt"].values
+vel_gt = data["vel_gt"].values
+pos_meas = data["pos_meas"].values
+vel_meas = data["vel_meas"].values
+pos_est = data["pos_ests"].values
+vel_est = data["vel_ests"].values
+disturbance = data["disturbance"].values
 
 plt.figure(figsize=(10, 5))
-plt.subplot(2, 1, 1)
-plt.plot(pos_gt, 'r', label='True Ball Height')
-plt.plot(pos_meas, 'g.', label='Measured Ball Height')
-plt.plot(pos_est, 'b--', label='Estimated Ball Height')
-plt.ylabel('Height')
+plt.subplot(3, 1, 1)
+plt.plot(pos_meas, 'g.', label='Measured Ball Height [m]')
+plt.plot(pos_est, 'b--', label='Estimated Ball Height [m]')
+plt.plot(pos_gt, 'r', label='True Ball Height [m]')
+plt.ylabel('Height [m]')
 plt.legend()
 
-plt.subplot(2, 1, 2)
-plt.plot(vel_gt, 'r', label='True Ball Velocity')
-plt.plot(vel_meas, 'g.', label='Measured Ball Velocity')
-plt.plot(vel_est, 'b--', label='Estimated Ball Velocity')
+plt.subplot(3, 1, 2)
+plt.plot(vel_meas, 'g.', label='Measured Ball Velocity [m/s]')
+plt.plot(vel_est, 'b--', label='Estimated Ball Velocity [m/s]')
+plt.plot(vel_gt, 'r', label='True Ball Velocity [m/s]')
 plt.xlabel('Timestep')
-plt.ylabel('Velocity')
+plt.ylabel('Velocity [m/s]')
+plt.legend()
+
+plt.subplot(3, 1, 3)
+plt.plot(disturbance, 'r', label='Perlin disturbance')
+plt.xlabel('Timestep')
+plt.ylabel('Force [N]')
 plt.legend()
 plt.show()
-
+'''
+plt.figure(figsize=(10, 5))
+plot_acf(disturbance, lags=50, bartlett_confint=False, alpha=None, ax=plt.gca())
+plt.xlabel('Lag')
+plt.ylabel('Autocorrelation')
+plt.savefig('plots/acf.png')
+plt.show()
+'''
 # Compute RMSE for position and velocity
 pos_rmse = np.sqrt(np.mean((pos_est - pos_gt)**2))
 vel_rmse = np.sqrt(np.mean((vel_est - vel_gt)**2))

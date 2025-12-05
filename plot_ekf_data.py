@@ -1,44 +1,54 @@
 import numpy as np
 from filter import gaussian
 import matplotlib.pyplot as plt
+import pandas as pd
 import scipy
+from statsmodels.graphics.tsaplots import plot_acf
 
 
-data = np.load("ekf_data.npz", allow_pickle=True)
-ground_truth = data["ground_truth"]
-estimated_states = data["estimated_states"]
-estimated_measurements = data["estimated_measurements"]
-measurements = data["measurements"]
-pos_gt = ground_truth[0]
-vel_gt = ground_truth[1]
-pos_meas = measurements[0]
-vel_meas = measurements[1]
+data = pd.read_csv("filter_results/ekf_data.csv")
+nis_values = data["nis_values"].values
+nees_values = data["nees_values"].values
+runtimes = data["runtimes"].values
+print(f"Average runtime: {sum(runtimes)/float(len(runtimes)):.6f}")
 
-state_means = np.column_stack([g.mean for g in estimated_states])
-meas_means = np.column_stack([g.mean for g in estimated_measurements])
-
-pos_est = state_means[0]
-vel_est = state_means[1]
-pos_meas_est = meas_means[0]
-vel_meas_est = meas_means[1]
+pos_gt = data["pos_gt"].values
+vel_gt = data["vel_gt"].values
+pos_meas = data["pos_meas"].values
+vel_meas = data["vel_meas"].values
+pos_est = data["pos_ests"].values
+vel_est = data["vel_ests"].values
+disturbance = data["disturbance"].values
 
 plt.figure(figsize=(10, 5))
-plt.subplot(2, 1, 1)
-plt.plot(pos_gt, 'r', label='True Ball Height')
-plt.plot(pos_meas, 'g.', label='Measured Ball Height')
-plt.plot(pos_est, 'b--', label='Estimated Ball Height')
-plt.ylabel('Height')
+plt.subplot(3, 1, 1)
+plt.plot(pos_meas, 'g.', label='Measured Ball Height [m]')
+plt.plot(pos_est, 'b--', label='Estimated Ball Height [m]')
+plt.plot(pos_gt, 'r', label='True Ball Height [m]')
+plt.ylabel('Height [m]')
 plt.legend()
 
-plt.subplot(2, 1, 2)
-plt.plot(vel_gt, 'r', label='True Ball Velocity')
-plt.plot(vel_meas, 'g.', label='Measured Ball Velocity')
-plt.plot(vel_est, 'b--', label='Estimated Ball Velocity')
+plt.subplot(3, 1, 2)
+plt.plot(vel_meas, 'g.', label='Measured Ball Velocity [m/s]')
+plt.plot(vel_est, 'b--', label='Estimated Ball Velocity [m/s]')
+plt.plot(vel_gt, 'r', label='True Ball Velocity [m/s]')
 plt.xlabel('Timestep')
-plt.ylabel('Velocity')
+plt.ylabel('Velocity [m/s]')
+plt.legend()
+
+plt.subplot(3, 1, 3)
+plt.plot(disturbance, 'r', label='Perlin disturbance')
+plt.xlabel('Timestep')
+plt.ylabel('Force [N]')
 plt.legend()
 plt.show()
-
+'''
+plt.figure(figsize=(10, 5))
+plot_acf(disturbance, lags=50, bartlett_confint=False, alpha=None, ax=plt.gca())
+plt.xlabel('Lag')
+plt.ylabel('Autocorrelation')
+plt.show()
+'''
 # Compute RMSE for position and velocity
 pos_rmse = np.sqrt(np.mean((pos_est - pos_gt)**2))
 vel_rmse = np.sqrt(np.mean((vel_est - vel_gt)**2))
@@ -109,20 +119,11 @@ plt.figure(figsize=(10, 6))
 
 # prepare arrays
 timesteps = len(pos_meas)
-nis_values = np.empty(timesteps)
-nees_values = np.empty(timesteps)
-
-for i in range(timesteps):
-    z = np.vstack([pos_meas[i], vel_meas[i]])
-    nis_values[i] = estimated_measurements[i].mahalanobis_distance(z)
-
-    x_gt = np.vstack([pos_gt[i], vel_gt[i]])
-    nees_values[i] = estimated_states[i].mahalanobis_distance(x_gt)
 
 # degrees of freedom
 # measurement dim (m) and state dim (n)
-m = z.size if 'z' in locals() else 2
-n = x_gt.size if 'x_gt' in locals() else 2
+m = 2
+n = 2
 
 # 95% confidence interval from chi-square
 nis_ci = scipy.stats.chi2.ppf([0.025, 0.975], df=m)

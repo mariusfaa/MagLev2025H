@@ -144,8 +144,12 @@ class EKF:
         self.dyn_mod = dyn_mod
         self.sens_mod = sens_mod
 
-        self.state_ests = []  # buffer for estimated states
+        self.state_ests = []
+        self.state_ests_mean = np.empty((2,0))  # buffer for estimated states
         self.meas_ests = []   # buffer for estimated measurements
+        self.nees_values = []
+        self.nis_values = []
+        self.runtimes = []
 
     def predict(self, x_est_prev: gaussian, u) -> tuple[gaussian, gaussian]:
         """Perform one EKF prediction step"""
@@ -201,6 +205,8 @@ class MHE_acados:
         self.x_ests = np.empty((self.nx, 0))
         self.z_buffer = np.empty((self.nx, 0))
         self.u_buffer = [0]
+        self.runtimes = []
+        self.runtimes_kalman = []
 
         # initial states; is currently overwritten before use
         self.x0_bar =  np.zeros((self.nx,))
@@ -227,7 +233,7 @@ class MHE_acados:
             ocp.model.cost_y_expr = ca.vertcat(self.sens_mod.h(self.dyn_mod_acados.x), self.dyn_mod_acados.u)
             ocp.cost.W_0 = block_diag(self.R_inv, self.Q_inv, self.P0_inv)
             ocp.cost.W = block_diag(self.R_inv, self.Q_inv)
-            if config.MHE_GROWING_HORIZON: # for stability reasons we dont want the optimizer to weigh temporary values if the horizon is growing
+            if config.MHE_INCREASING_HORIZON: # for stability reasons we dont want the optimizer to weigh temporary values if the horizon is increasing
                 ocp.cost.W = block_diag(config.MHE_SMALL_WEIGHT, config.MHE_SMALL_WEIGHT)
             ocp.cost.yref_0 = np.zeros((self.ny_0,))
             ocp.cost.yref = np.zeros((self.ny,))
@@ -244,7 +250,7 @@ class MHE_acados:
             options.tf = self.max_horizon * self.dt
             options.qp_solver = 'FULL_CONDENSING_QPOASES'
             options.hessian_approx = 'GAUSS_NEWTON' # 'EXACT'
-            options.integrator_type =  'DISCRETE' #'ERK'
+            options.integrator_type =  config.MHE_INTEGRATOR # 'DISCRETE'
             options.nlp_solver_type = 'SQP_RTI'
             options.nlp_solver_max_iter = 100
             options.cost_scaling = np.ones((self.max_horizon + 1,)) # no scaling
@@ -280,47 +286,54 @@ class MHE_acados:
         return x_upd, P_upd
     
 
-    def run_mhe(self, meas: np.ndarray, odometry: list):
+    def run_mhe(self, meas: np.ndarray, odometry):
+        start = time.perf_counter()
         nx = self.nx
         nu = self.nu
         nz = self.nz
         ny = self.ny
 
         self.z_buffer = np.append(self.z_buffer, meas, axis=1)
+        if len(odometry) > 0:
+            u = odometry[-1]
 
         # Special behaviour for first run and if horizon is not full
-        if self.z_buffer.shape[1] < self.max_horizon:
+        if (self.z_buffer.shape[1] == 1) or (self.z_buffer.shape[1] < self.max_horizon):
             # Set x0 at time = 0 (first run) and return set estimate as measurement
             if self.z_buffer.shape[1] == 1:
                 self.x0_bar = meas.reshape(nz,)
                 self.x_ests = np.append(self.x_ests, meas, axis=1)
+                stop = time.perf_counter()
+                self.runtimes.append(stop-start)
+                self.runtimes_kalman.append(0)
                 return meas
             else:
-                u = odometry[-1]
                 self.u_buffer.append(u)
 
-            # If growing horizon is False we return the measurements until the horizon is filled
-            if not config.MHE_GROWING_HORIZON:
+            # If INCREASING_HORIZON is False we return the measurements until the horizon is filled
+            if not config.MHE_INCREASING_HORIZON:
                 self.x_ests = np.append(self.x_ests, meas, axis=1)
+                stop = time.perf_counter()
+                self.runtimes.append(stop-start)
+                self.runtimes_kalman.append(0)
                 return meas
         
 
         meas = meas.reshape(nz,)
-        u = odometry[-1]
         self.u_buffer.append(u)
 
         # Limit horizon length if not enough measurements yet
         M = min(self.max_horizon, self.z_buffer.shape[1])
 
         # Set horizon to current measurement and fill horizons M last entires with the M last measurements
-        # if GROWING_HORIZON is False, then horizon_z is always entirely overwritten
+        # if INCREASING_HORIZON is False, then horizon_z is always entirely overwritten
         horizon_z = np.tile(meas.reshape(nz,1), self.max_horizon)
         horizon_u = np.zeros((self.nu, self.max_horizon))
         horizon_z[:, :M] = self.z_buffer[:, -M:]
         horizon_u[:, :M] = self.u_buffer[-M:]
 
         # use if horizon is filled with temporary items that we want to remove
-        if config.MHE_GROWING_HORIZON:
+        if config.MHE_INCREASING_HORIZON:
             if M < self.max_horizon:
                 self.solver.cost_set(M, 'W', block_diag(self.R_inv, self.Q_inv), api='new')
 
@@ -354,13 +367,20 @@ class MHE_acados:
         #    rac.append(self.solver.get(i, 'x'))
 
         # update arrival cost (for next iteration)
-        self.x0_bar, self.P_prior = self.kalman_update(self.x0_bar, horizon_z[:, 1], horizon_u[:, 0])
+        start_kalman_timer = time.perf_counter()
+        self.x0_bar, self.P_prior = self.kalman_update(self.x0_bar, horizon_z[:, 0], horizon_u[:, 0])
         self.P0_inv = np.linalg.inv(self.P_prior)
         self.solver.cost_set(0, 'W', block_diag(self.R_inv, self.Q_inv, self.P0_inv), api='new')
+        stop_kalman_timer = time.perf_counter()
+        self.runtimes_kalman.append(stop_kalman_timer-start_kalman_timer)
 
         # add solution to buffer
         self.x_ests = np.append(self.x_ests, x_est.reshape(nx, 1), axis=1)
-  
+
+        # runtime
+        stop = time.perf_counter()
+        self.runtimes.append(stop-start)
+
         return x_est
 
 
@@ -513,11 +533,11 @@ def add_noise(pos, vel):
     return z_meas
 
 
-def init_estimator(observer: int):
+def init_estimator(observer, horizon=config.MHE_HORIZON):
     """
-    2: ekf\n
-    3: mhe\n
-    4: mhe_acados
+    ekf\n
+    mhe\n
+    mhe_acados
     """
     R = lambda v1, v2: np.diag([v1, v2])
     Q = lambda v1, v2, dt: np.array([
@@ -525,20 +545,21 @@ def init_estimator(observer: int):
         [0, v2*dt]
         ])
     Q0 = np.diag([config.STD_POS**2, config.STD_VEL**2])
-    if observer == 2:
+    if observer == 'ekf':
         return EKF(dynamic_model(Q(config.EKF_VAR_PROC_POS, config.EKF_VAR_PROC_VEL, config.TIME_STEP)),
                    sensor_model(R(config.EKF_VAR_MEAS_POS, config.EKF_VAR_MEAS_VEL)))
-    if observer == 3:
+    if observer == 'mhe':
         return MHE(dynamic_model(Q(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL, config.TIME_STEP)),
                    sensor_model(R, config.MHE_VAR_MEAS_POS, config.MHE_VAR_MEAS_VEL),
                    config.MHE_HORIZON)
-    if observer == 4:
+    if observer == 'mhe_acados':
         return MHE_acados(dynamic_model(Q(config.MHE_VAR_PROC_POS, config.MHE_VAR_PROC_VEL, config.TIME_STEP)),
                           sensor_model(R(config.MHE_VAR_MEAS_POS, config.MHE_VAR_MEAS_VEL)),
-                          config.MHE_HORIZON, Q0)
+                          horizon, Q0)
 
 
-def run_ekf(ekf: EKF, z: np.ndarray, odometry: list):
+def run_ekf(ekf: EKF, z: np.ndarray, odometry: list, gt):
+    start = time.perf_counter()
     u = odometry[-1] if len(odometry) > 0 else 0
     if len(odometry) == 0:
         # Initialize EKF with first measurement
@@ -550,9 +571,15 @@ def run_ekf(ekf: EKF, z: np.ndarray, odometry: list):
         # EKF predict and update steps
         x_est_pred, z_est_pred = ekf.predict(ekf.state_ests[-1], u)
         x_est = ekf.update(x_est_pred, z_est_pred, z)
+    stop = time.perf_counter()
+    ekf.runtimes.append(stop-start)
+
     est_pos, est_vel = x_est.mean
     ekf.meas_ests.append(z_est_pred)
     ekf.state_ests.append(x_est)
+    ekf.state_ests_mean = np.append(ekf.state_ests_mean, x_est.mean, axis=1)
+    ekf.nis_values.append(z_est_pred.mahalanobis_distance(z))
+    ekf.nees_values.append(x_est.mahalanobis_distance(gt))
 
     return est_pos, est_vel
 
