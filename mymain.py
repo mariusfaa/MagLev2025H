@@ -346,7 +346,7 @@ def run_mpc_controller_tube_sim(estimator: int):
                 measurements=measurements,
                 estimated_states=mhe.x_ests)
         
-def run_mpc_controller_ACADOS_sim(estimator, test_type, ref_type='constant', freq=config.SINE_REFERENCE_PERIOD, slope=config.SIGMOID_REFERENCE_SLOPE, octave=config.PERLIN_OCTAVES, horizon=config.MHE_HORIZON, increasing=config.MHE_INCREASING_HORIZON, erk=config.MHE_INTEGRATOR=='ERK'):
+def run_mpc_controller_ACADOS_sim(estimator, test_type, ref_type='constant', freq=config.SINE_REFERENCE_PERIOD, slope=config.SIGMOID_REFERENCE_SLOPE, octave=config.PERLIN_OCTAVES, horizon=config.MHE_HORIZON, increasing=config.MHE_INCREASING_HORIZON, erk=config.MHE_INTEGRATOR=='ERK', use_disturbance=False):
     """Runs the simulation with the MPC Controller (Acados version)."""
 
     ball = Ball(config.SCREEN_WIDTH / 2, config.STARTING_HEIGHT)
@@ -415,7 +415,10 @@ def run_mpc_controller_ACADOS_sim(estimator, test_type, ref_type='constant', fre
 
         # --- Disturbance ---
         noise_time_cursor += config.TIME_STEP * config.PERLIN_FREQUENCY
-        noise_val = generate_noise_step(noise_time_cursor, octave, base_seed)
+        if use_disturbance:
+            noise_val = generate_noise_step(noise_time_cursor, octave, base_seed)
+        else:
+            noise_val = 0
 
         
         # Logging
@@ -464,7 +467,7 @@ def run_mpc_controller_ACADOS_sim(estimator, test_type, ref_type='constant', fre
                 'runtimes': mhe.runtimes,
                 'runtimes_kalman': mhe.runtimes_kalman
                 })
-        df_mhe.to_csv(f'{save_folder}mhe_ref{ref_type}_freq{freq}_slope{slope}_octave{octave}_horizon{horizon}_growing{increasing}_erk{erk}.csv', index=False)
+        df_mhe.to_csv(f'{save_folder}mhe_ref{ref_type}_freq{freq}_slope{slope}_octave{octave}_horizon{horizon}_increasing{increasing}_erk{erk}.csv', index=False)
     
     
 def run_mpc_controller_stochastic_acados_sim(estimator: int):
@@ -684,7 +687,7 @@ def run_benchmark():
     slopes = [5, 10, 15]
     freqs = [0.1, 1, 10]
     filters = ['ekf', 'mhe_acados']
-    horizons = [20, 50, 100]
+    horizons = [10, 50, 100]
     horizons_many = np.arange(0, 101, 10).tolist(); horizons_many[0] = 1  # [1, 10, ..., 100]
 
     # test EKF and MHE_acados
@@ -703,15 +706,15 @@ def run_benchmark():
         # disturbance tests
         for octave in octaves:
             print(f'{est} octave: {octave}')
-            run_mpc_controller_ACADOS_sim(est, 'disturbance', octave=octave)
+            run_mpc_controller_ACADOS_sim(est, 'disturbance', octave=octave, use_disturbance=True)
         
         # horizon tests againts high disturbance and for runtime benchmarking
         
         if est == 'mhe_acados':
             config.PERLIN_AMPLITUDE=40
-            for horizon in horizons_many:
+            for horizon in horizons:
                 print(f'{est} horizon: {horizon}')
-                run_mpc_controller_ACADOS_sim(est, 'horizon', horizon=horizon)
+                run_mpc_controller_ACADOS_sim(est, 'horizon', horizon=horizon, use_disturbance=True)
             
             # growing horizons with and without ERK
             config.PERLIN_AMPLITUDE=10
