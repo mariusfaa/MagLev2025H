@@ -12,9 +12,9 @@ from p_controller import PController
 from mpc_controller import MPCController
 from mpc_controller_stoch import MPCControllerStochastic
 from mpc_controller_tube import MPCControllerTube
-from mpc_controller_acados import MPCControllerACADOS
-from mpc_controller_stoch_acados import MPCControllerStochasticAcados
-from mpc_controller_tube_acados import MPCControllerTubeAcados
+# from mpc_controller_acados import MPCControllerACADOS
+# from mpc_controller_stoch_acados import MPCControllerStochasticAcados
+# from mpc_controller_tube_acados import MPCControllerTubeAcados
 
 # Try to import PPO, but continue if not available/trained
 try:
@@ -88,7 +88,7 @@ def run_simulation(controller, controller_name, octave, run_id):
         #     # PController expects: (y, target, vel)
         #     force = controller.get_action(ball.y, target, ball.velocity)
             
-        if controller_name == "MPC" or controller_name == "MPC_Stochastic" or controller_name == "MPC_Tube" or controller_name == "MPC_Acados" or controller_name == "MPC_Stochastic_Acados" or controller_name == "MPC_Tube_Acados":
+        if controller_name == "MPC" or controller_name == "MPC_Stochastic" or controller_name == "MPC_Tube":
             # MPC expects: (y, vel, target)
             force, _, _ = controller.get_action(ball.y, ball.velocity, target, return_trajectory=False)
             
@@ -137,6 +137,8 @@ def save_to_csv(filename, data):
 
 def main():
     ensure_dir(OUTPUT_DIR)
+    # Start benchmark timer
+    start_time = time.time()
     
     # --- Initialize Controllers ---
     controllers = {}
@@ -148,9 +150,9 @@ def main():
     controllers["MPC"] = MPCController()
     controllers["MPC_Stochastic"] = MPCControllerStochastic()
     controllers["MPC_Tube"] = MPCControllerTube()
-    controllers["MPC_Acados"] = MPCControllerACADOS()
-    controllers["MPC_Stochastic_Acados"] = MPCControllerStochasticAcados()
-    controllers["MPC_Tube_Acados"] = MPCControllerTubeAcados()
+    # controllers["MPC_Acados"] = MPCControllerACADOS()
+    # controllers["MPC_Stochastic_Acados"] = MPCControllerStochasticAcados()
+    # controllers["MPC_Tube_Acados"] = MPCControllerTubeAcados()
     
     # if PPO_AVAILABLE and os.path.exists("ppo_ball_controller.zip"):
     #     print("Initializing PPO Agent...")
@@ -193,13 +195,26 @@ def main():
             print(f"    Finished 10 runs. Avg Discrepancy (MAE): {mean_octave_error:.4f}")
 
     # --- Save Summary ---
+    # Stop benchmark timer and compute total time
+    total_time = time.time() - start_time
+
     summary_path = os.path.join(OUTPUT_DIR, "summary_report.csv")
     with open(summary_path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=["Controller", "Octave", "Avg_MAE"])
+        fieldnames = ["Controller", "Octave", "Avg_MAE", "Total_Benchmark_Time_s"]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
+        # Write all summary rows (Total_Benchmark_Time_s will be empty for these rows)
         writer.writerows(summary_results)
-    
+        # Append a final row with the total benchmark time (in seconds)
+        writer.writerow({
+            "Controller": "TOTAL",
+            "Octave": "",
+            "Avg_MAE": "",
+            "Total_Benchmark_Time_s": round(total_time, 4)
+        })
+
     print(f"\nTests Complete. Detailed CSVs and 'summary_report.csv' saved in '{OUTPUT_DIR}/'.")
+    print(f"Total benchmark time: {total_time:.4f} seconds")
 
 if __name__ == "__main__":
     main()
