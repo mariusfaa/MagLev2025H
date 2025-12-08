@@ -117,7 +117,7 @@ class MPCControllerACADOS:
         # Dynamics (Continuous time: x_dot = f(x,u))
         # h_dot = v
         # v_dot = u - g
-        x_dot = cs.vertcat(v, F - config.GRAVITY)
+        x_dot = cs.vertcat(v, F/config.BALL_MASS - config.GRAVITY)
 
         model.f_expl_expr = x_dot
         model.x = x

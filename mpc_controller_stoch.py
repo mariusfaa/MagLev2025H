@@ -19,6 +19,9 @@ class MPCControllerStochastic:
         self.X0 = self.opti.parameter(2)       # Initial state
         self.target_height = self.opti.parameter()  # Target height
 
+        # Create list of noise parameters for each sample
+        self.Noise_params = [self.opti.parameter(2, N) for _ in range(num_samples)]
+        
         # For each sample, define its own state trajectory
         self.X_samples = [self.opti.variable(2, N + 1) for _ in range(num_samples)]
 
@@ -49,12 +52,12 @@ class MPCControllerStochastic:
 
         # For reproducibility, use fixed noise samples
         # np.random.seed(42)
-        self.noise_samples = [np.random.normal(0, self.noise_std, (2, N)) for _ in range(num_samples)]
+        # self.noise_samples = [np.random.normal(0, self.noise_std, (2, N)) for _ in range(num_samples)]
 
         cost = 0
         for i in range(num_samples):
             X = self.X_samples[i]
-            noise = self.noise_samples[i]
+            noise = self.Noise_params[i]
             # Dynamics constraints for this sample
             for k in range(N):
                 # Additive process noise to both height and velocity
@@ -94,6 +97,10 @@ class MPCControllerStochastic:
         """Computes the optimal control action given the current state, using stochastic MPC."""
         self.opti.set_value(self.X0, [current_height, current_velocity])
         self.opti.set_value(self.target_height, target_height)
+        
+        for i in range(self.num_samples):
+            fresh_noise = np.random.normal(0, self.noise_std, (2, self.N))
+            self.opti.set_value(self.Noise_params[i], fresh_noise)
 
         try:
             sol = self.opti.solve()

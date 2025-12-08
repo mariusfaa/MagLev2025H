@@ -58,4 +58,4 @@ def calculate_rmse(directory="."):
     return results
 
 if __name__ == "__main__":
-    calculate_rmse("benchmark_results/20251128_094143/sine_Period_1")  # Endre til ønsket mappe
+    calculate_rmse("benchmark_results/20251206_153610/sine_Period_1")  # Endre til ønsket mappe

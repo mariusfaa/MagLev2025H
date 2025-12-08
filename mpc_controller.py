@@ -66,8 +66,8 @@ class MPCController:
             "ipopt.print_level": 0,
             "print_time": 0,
             # "ipopt.max_iter": 300,
-            "ipopt.tol": 1e-1,
-            "ipopt.acceptable_tol": 1e-1
+            "ipopt.tol": 1e-6,
+            "ipopt.acceptable_tol": 1e-4
         }
         # self.opti.solver('qpOASES', qpOASES_opts)
         self.opti.solver('ipopt', ipopt_opts)

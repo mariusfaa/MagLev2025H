@@ -104,8 +104,8 @@ def main():
 
     controllers_to_test = [
         ("MPC_Standard", lambda: MPCController()),
-        ("MPC_Stochastic", lambda: MPCControllerStochastic(N=config.STOCHASTIC_MPC_HORIZON, dt=config.TIME_STEP, num_samples=config.STOCHASTIC_MPC_SAMPLES)),
-        ("MPC_Tube", lambda: MPCControllerTube(N=config.STD_MPC_HORIZON, dt=config.TIME_STEP)),
+        ("MPC_Stochastic", lambda: MPCControllerStochastic()),
+        ("MPC_Tube", lambda: MPCControllerTube()),
         ("MPC_Acados", lambda: MPCControllerACADOS()), 
     ]
     
