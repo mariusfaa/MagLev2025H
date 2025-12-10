@@ -5,6 +5,7 @@ from acados_template import AcadosOcp, AcadosOcpSolver, AcadosModel
 import casadi as cs
 import config
 
+# Note: This is the old acados mpc controller, se the mpc_acados folder for the newest implementation!
 class MPCControllerACADOS:
     """A high-performance MPC Controller using Acados."""
     

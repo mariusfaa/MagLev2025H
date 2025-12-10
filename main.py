@@ -19,10 +19,10 @@ from mpc_controller_tube import MPCControllerTube
 from mpc_controller_acados import MPCControllerACADOS
 from mpc_controller_stoch_acados import MPCControllerStochasticAcados
 from mpc_controller_tube_acados import MPCControllerTubeAcados
+from mpc_acados.acados_mpc_controller import AcadosMPCController
 from filter import *
 from logger import SimulationLogger
 import datetime
-
 def draw_scene(screen, font, ball, current_target_height, force,
                height_label='Height', vel_label='Velocity', force_label='Force'):
     """Draw ground, target line, ball and info texts to the screen.
@@ -491,7 +491,8 @@ def run_mpc_controller_ACADOS_sim(estimator: int):
     
     # Initialize Acados MPC
     # Note: This may trigger a C-code compilation step on the first run.
-    mpc_controller_acados = MPCControllerACADOS()
+    #mpc_controller_acados = MPCControllerACADOS() # The old acados MPC controller
+    mpc_controller_acados = AcadosMPCController()
 
     # --- Initialize chosen estimator ---
     ekf, mhe = None, None
@@ -512,6 +513,7 @@ def run_mpc_controller_ACADOS_sim(estimator: int):
     logger = SimulationLogger(f"sim_results/MPC_Standard_ACADOS_{timestamp}")
     
     current_step = 0
+    u_prev = 0.0 #Initialization of previous input
     running = True
     while running:
         for event in pygame.event.get():
@@ -528,10 +530,10 @@ def run_mpc_controller_ACADOS_sim(estimator: int):
 
         # --- MPC Control Step ---
         # Returns: force (float), pred_X (numpy array), pred_U (numpy array)
-        force, pred_X, pred_U = mpc_controller_acados.get_action(est_pos, est_vel, current_target_height)
-        
+        force, pred_X, pred_U = mpc_controller_acados.get_action(est_pos, est_vel, u_prev, current_target_height)
         # Ensure force is a standard float for PyGame/Physics
         force = float(force)
+        u_prev = force
 
         # Apply control
         applied_noise = ball.apply_force(force, disturbance=True)
@@ -584,7 +586,7 @@ def run_mpc_controller_ACADOS_sim(estimator: int):
         "forces": forces,
         "trajectories": predicted_trajectories,
         "controls": predicted_controls,
-        "N": config.STD_MPC_HORIZON,
+        "N": config.ACADOS_MPC_HORIZON,
         "qh": qh, 
         "qv": qv, 
         "lbu": lbu, 
@@ -614,10 +616,10 @@ def run_mpc_controller_ACADOS_sim(estimator: int):
     # Lagre data og spesifikke parametere
     logger.save(extra_params={
         "Controller_Type": "Standard MPC ACADOS",
-        "MPC_N": config.STD_MPC_HORIZON,
-        "Q_h": config.STD_MPC_QH,
-        "Q_v": config.STD_MPC_QV,
-        "R": config.STD_MPC_R,
+        "MPC_N": config.ACADOS_MPC_HORIZON,
+        "Q_h": config.ACADOS_MPC_QH,
+        "Q_v": config.ACADOS_MPC_QV,
+        "R": config.ACADOS_MPC_R,
         "Estimator_Type": estimator,
         "Trajectory_Type": config.MOVING_REFERENCE_TYPE if config.MOVING_REFERENCE else config.TARGET_HEIGHT,
         "Sigmoid_Slope": config.SIGMOID_REFERENCE_SLOPE if config.MOVING_REFERENCE_TYPE == 'sigmoid' else None,
