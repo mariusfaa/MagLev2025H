@@ -3,6 +3,7 @@ import random
 import csv
 import os
 import time
+import math
 from noise import pnoise1
 
 # Import your existing modules
@@ -45,7 +46,7 @@ def generate_noise_step(time_cursor, octaves, base):
 def run_simulation(controller, controller_name, octave, run_id):
     """
     Runs a single simulation episode.
-    Returns: A list of data rows and the average absolute error.
+    Returns: A list of data rows and the root mean squared error (RMSE).
     """
     
     # 1. Setup Environment
@@ -59,7 +60,7 @@ def run_simulation(controller, controller_name, octave, run_id):
     
     # Data storage
     data_rows = []
-    total_error = 0.0
+    total_sq_error = 0.0
     
     # # If PPO, we need the gymnasium environment wrapper
     # ppo_env = None
@@ -123,11 +124,11 @@ def run_simulation(controller, controller_name, octave, run_id):
         ]
         data_rows.append(row)
         
-        # 5. Accumulate Error (Absolute difference from target)
-        total_error += abs(target - ball.y)
+        # 5. Accumulate Squared Error (for RMSE)
+        total_sq_error += (target - ball.y) ** 2
 
-    avg_error = total_error / STEPS
-    return data_rows, avg_error
+    rmse = math.sqrt(total_sq_error / STEPS)
+    return data_rows, rmse
 
 def save_to_csv(filename, data):
     with open(filename, 'w', newline='') as f:
@@ -185,14 +186,14 @@ def main():
                 filepath = os.path.join(OUTPUT_DIR, filename)
                 save_to_csv(filepath, data)
                 
-            # Calculate mean error for this octave
+            # Calculate mean RMSE for this octave
             mean_octave_error = sum(octave_errors) / len(octave_errors)
             summary_results.append({
                 "Controller": name,
                 "Octave": octave,
-                "Avg_MAE": mean_octave_error
+                "Avg_RMSE": mean_octave_error
             })
-            print(f"    Finished 10 runs. Avg Discrepancy (MAE): {mean_octave_error:.4f}")
+            print(f"    Finished 10 runs. Avg Discrepancy (RMSE): {mean_octave_error:.4f}")
 
     # --- Save Summary ---
     # Stop benchmark timer and compute total time
@@ -200,7 +201,7 @@ def main():
 
     summary_path = os.path.join(OUTPUT_DIR, "summary_report.csv")
     with open(summary_path, 'w', newline='') as f:
-        fieldnames = ["Controller", "Octave", "Avg_MAE", "Total_Benchmark_Time_s"]
+        fieldnames = ["Controller", "Octave", "Avg_RMSE", "Total_Benchmark_Time_s"]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         # Write all summary rows (Total_Benchmark_Time_s will be empty for these rows)
@@ -209,7 +210,7 @@ def main():
         writer.writerow({
             "Controller": "TOTAL",
             "Octave": "",
-            "Avg_MAE": "",
+            "Avg_RMSE": "",
             "Total_Benchmark_Time_s": round(total_time, 4)
         })
 
