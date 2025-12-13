@@ -30,7 +30,7 @@ class MPCControllerTube:
         # Dynamics constraints for nominal trajectory
         for k in range(N):
             h_next = self.Xn[0, k] + self.Xn[1, k] * dt
-            v_next = self.Xn[1, k] + (self.Un[0, k]/config.BALL_MASS - config.GRAVITY) * dt
+            v_next = self.Xn[1, k] + (self.Un[0, k]/config.BALL_MASS- config.GRAVITY) * dt
             self.opti.subject_to(self.Xn[0, k + 1] == h_next)
             self.opti.subject_to(self.Xn[1, k + 1] == v_next)
 
@@ -52,7 +52,7 @@ class MPCControllerTube:
 
         # State constraints (tighten by margin)
         x_tightening = config.TUBE_MPC_TIGHTING_X  # height tightening
-        self.opti.subject_to(self.Xn[0, :] >= 0 + x_tightening)
+        self.opti.subject_to(self.Xn[0, :] >= config.BALL_RADIUS + x_tightening)
 
         # Cost (nominal)
         qh = config.TUBE_MPC_QH

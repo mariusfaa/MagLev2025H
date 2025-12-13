@@ -41,7 +41,7 @@ class MPCControllerStochastic:
 
         # State constraints (optional)
         for i in range(num_samples):
-            self.opti.subject_to(self.X_samples[i][0, :] >= 0)  # Height must be non-negative
+            self.opti.subject_to(self.X_samples[i][0, :] >= config.BALL_RADIUS)  # Height must be non-negative
 
         # Objective function: expected cost over all samples
         self.qx = config.STOCHASTIC_MPC_QH

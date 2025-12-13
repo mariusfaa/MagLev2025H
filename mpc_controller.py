@@ -40,7 +40,7 @@ class MPCController:
             self.opti.subject_to(self.opti.bounded(-self.delta_u_max, delta_u, self.delta_u_max))
 
         # State constraints (optional - uncomment if needed)
-        self.opti.subject_to(self.X[0, :] >= 0)  # Height must be non-negative
+        self.opti.subject_to(self.X[0, :] >= config.BALL_RADIUS)  # Height must be non-negative
 
         # Objective function: minimize the distance to the target height and control effort
         self.qh = config.STD_MPC_QH
