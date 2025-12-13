@@ -25,23 +25,35 @@ class MPCControllerTube:
         A = np.array([[1.0, dt],
                       [0.0, 1.0]])
         B = np.array([[0.0],
-                      [dt]])
+                      [dt/config.BALL_MASS]])
 
         # Dynamics constraints for nominal trajectory
         for k in range(N):
             h_next = self.Xn[0, k] + self.Xn[1, k] * dt
-            v_next = self.Xn[1, k] + (self.Un[0, k]/config.BALL_MASS- config.GRAVITY) * dt
+            v_next = self.Xn[1, k] + (self.Un[0, k]/config.BALL_MASS - config.GRAVITY) * dt
             self.opti.subject_to(self.Xn[0, k + 1] == h_next)
             self.opti.subject_to(self.Xn[1, k + 1] == v_next)
 
         # Initial condition for nominal trajectory set to parameter
-        self.opti.subject_to(self.Xn[:, 0] == self.X0)
+        x_tightening = config.TUBE_MPC_TIGHTENING_H 
+        v_tightening = config.TUBE_MPC_TIGHTENING_V  # Allow some velocity slack for the solver
+
+        self.opti.subject_to(self.opti.bounded(
+            self.X0[0] - x_tightening, 
+            self.Xn[0, 0], 
+            self.X0[0] + x_tightening
+        ))
+        self.opti.subject_to(self.opti.bounded(
+            self.X0[1] - v_tightening, 
+            self.Xn[1, 0], 
+            self.X0[1] + v_tightening
+        ))
 
         # Control bounds for nominal
         self.lbu = -config.FORCE_MAGNITUDE
         self.ubu = config.FORCE_MAGNITUDE
         # tighten nominal bounds slightly for robustness margin (tube)
-        self.u_tightening = config.TUBE_MPC_TIGHTING_U  # tuning parameter: tighten control by this much
+        self.u_tightening = config.TUBE_MPC_TIGHTENING_U  # tuning parameter: tighten control by this much
         self.opti.subject_to(self.opti.bounded(self.lbu + self.u_tightening, self.Un, self.ubu - self.u_tightening))
 
         # Optional delta-u constraint on nominal
@@ -51,7 +63,7 @@ class MPCControllerTube:
             self.opti.subject_to(self.opti.bounded(-self.delta_u_max, delta_u, self.delta_u_max))
 
         # State constraints (tighten by margin)
-        x_tightening = config.TUBE_MPC_TIGHTING_X  # height tightening
+        x_tightening = config.TUBE_MPC_TIGHTENING_H  # height tightening
         self.opti.subject_to(self.Xn[0, :] >= config.BALL_RADIUS + x_tightening)
 
         # Cost (nominal)
@@ -81,7 +93,7 @@ class MPCControllerTube:
 
         # Initial guess
         self.opti.set_initial(self.Xn, np.zeros((2, N + 1)))
-        self.opti.set_initial(self.Un, np.full((1, N), config.GRAVITY))
+        self.opti.set_initial(self.Un, np.full((1, N), config.BALL_MASS * config.GRAVITY))
 
         # Precompute LQR feedback K for the linearized model (infinite horizon approx)
         self.K = self._compute_lqr_gain(A, B, Q * config.TUBE_MPC_LQR_SCALE, R)
@@ -117,7 +129,7 @@ class MPCControllerTube:
             x_curr = np.array([current_height, current_velocity]).reshape(-1)
             delta = x_curr - x_nom0
             u_corr = float((self.K @ delta).reshape(()))
-            u_applied = u_nom0 + u_corr
+            u_applied = u_nom0 - u_corr
             # saturate
             u_applied = float(np.clip(u_applied, self.lbu, self.ubu))
             # store last solution
