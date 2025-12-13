@@ -1,0 +1,14 @@
+MPC Controller Computational Time Results (Varying Horizon N)
+============================================================
+standard MPC (N=10)                                    : 6.6611 ms
+standard MPC (N=20)                                    : 10.1335 ms
+standard MPC (N=40)                                    : 18.2578 ms
+standard MPC (N=5)                                     : 6.5581 ms
+stochastic MPC (N=10)                                  : 14.1025 ms
+stochastic MPC (N=20)                                  : 26.9964 ms
+stochastic MPC (N=40)                                  : 61.1214 ms
+stochastic MPC (N=5)                                   : 9.3707 ms
+tube MPC (N=10)                                        : 6.4479 ms
+tube MPC (N=20)                                        : 8.8715 ms
+tube MPC (N=40)                                        : 16.7322 ms
+tube MPC (N=5)                                         : 4.6344 ms
