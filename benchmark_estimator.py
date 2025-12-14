@@ -25,7 +25,7 @@ def get_target_height(step_idx, ref_type):
     t = step_idx * config.TIME_STEP
     
     if ref_type == 'sine':
-        return np.sin(t * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+        return np.sin(t * config.SINE_REFERENCE_FREQUENCY) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
     
     elif ref_type == 'sigmoid':
         L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE

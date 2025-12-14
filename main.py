@@ -63,7 +63,7 @@ def get_target_height(t: float):
     """
     if config.MOVING_REFERENCE:
         if config.MOVING_REFERENCE_TYPE == 'sine':
-            return np.sin(t * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+            return np.sin(t * config.SINE_REFERENCE_FREQUENCY) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
         elif config.MOVING_REFERENCE_TYPE == 'sigmoid':
             L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
             L2 = config.TARGET_HEIGHT + config.SIGMOID_REFERENCE_AMPLITUDE - L1
@@ -621,7 +621,7 @@ def run_mpc_controller_ACADOS_sim(estimator: int):
         "Estimator_Type": estimator,
         "Trajectory_Type": config.MOVING_REFERENCE_TYPE if config.MOVING_REFERENCE else config.TARGET_HEIGHT,
         "Sigmoid_Slope": config.SIGMOID_REFERENCE_SLOPE if config.MOVING_REFERENCE_TYPE == 'sigmoid' else None,
-        "Sinusoidal_Period": config.SINE_REFERENCE_PERIOD if config.MOVING_REFERENCE_TYPE == 'sine' else None
+        "Sinusoidal_Period": config.SINE_REFERENCE_FREQUENCY if config.MOVING_REFERENCE_TYPE == 'sine' else None
     })
 def run_mpc_controller_stochastic_acados_sim(estimator: int):
     """Runs the simulation with the Stochastic MPC Controller (Acados version)."""

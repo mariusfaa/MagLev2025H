@@ -23,7 +23,7 @@ def get_target_height(step_idx, ref_type):
     t = step_idx * config.TIME_STEP
     
     if ref_type == 'sine':
-        return np.sin(t * config.SINE_REFERENCE_PERIOD) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
+        return np.sin(t * config.SINE_REFERENCE_FREQUENCY) * config.SINE_REFERENCE_AMPLITUDE + config.TARGET_HEIGHT
     
     elif ref_type == 'sigmoid':
         L1 = config.TARGET_HEIGHT - config.SIGMOID_REFERENCE_AMPLITUDE
@@ -40,19 +40,19 @@ def calculate_complexity(ref_type, param_name, param_value):
     
     # Temporarily override config to match the simulation parameters
     original_slope = config.SIGMOID_REFERENCE_SLOPE
-    original_period = config.SINE_REFERENCE_PERIOD
+    original_period = config.SINE_REFERENCE_FREQUENCY
     
     if ref_type == 'sigmoid' and param_name == 'Slope':
         config.SIGMOID_REFERENCE_SLOPE = param_value
     elif ref_type == 'sine' and param_name == 'Period':
-        config.SINE_REFERENCE_PERIOD = param_value
+        config.SINE_REFERENCE_FREQUENCY = param_value
 
     # Generate target trajectory
     targets = np.array([get_target_height(i, ref_type) for i in range(len(t_eval))])
 
     # Restore config
     config.SIGMOID_REFERENCE_SLOPE = original_slope
-    config.SINE_REFERENCE_PERIOD = original_period
+    config.SINE_REFERENCE_FREQUENCY = original_period
 
     # Calculate max acceleration demand
     velocity_ref = np.gradient(targets, config.TIME_STEP)
@@ -180,7 +180,7 @@ def main():
     
     print("\n--- Kjører Sinusoidal Period Tester ---")
     for period in periods:
-        config.SINE_REFERENCE_PERIOD = period
+        config.SINE_REFERENCE_FREQUENCY = period
         complexity = calculate_complexity('sine', 'Period', period)
         for name, factory in tqdm(controllers_to_test, desc=f"Period {period}"):
             try:
