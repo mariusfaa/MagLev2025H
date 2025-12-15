@@ -1,0 +1,14 @@
+MPC Controller Computational Time Results (Varying Horizon N)
+============================================================
+ACADOS MPC (N=5)                                       : 0.2945 ms
+stochastic acados MPC (N=5)                            : 0.2666 ms
+tube acados MPC (N=5)                                  : 0.3165 ms
+ACADOS MPC (N=10)                                      : 0.5961 ms
+stochastic acados MPC (N=10)                           : 0.6085 ms
+tube acados MPC (N=10)                                 : 0.7758 ms
+ACADOS MPC (N=20)                                      : 1.2146 ms
+stochastic acados MPC (N=20)                           : 1.4504 ms
+tube acados MPC (N=20)                                 : 1.3016 ms
+ACADOS MPC (N=40)                                      : 2.3957 ms
+stochastic acados MPC (N=40)                           : 2.7871 ms
+tube acados MPC (N=40)                                 : 2.5226 ms
